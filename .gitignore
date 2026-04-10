@@ -1,0 +1,118 @@
+# Secrets & Credentials
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+credentials/
+secrets/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+.python-version
+
+# uv
+.uv/
+
+# Testing & Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Type Checkers & Linters
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.pytype/
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb_checkpoints
+
+# DuckDB
+*.duckdb
+*.duckdb.wal
+*.duckdb.tmp
+data/*.duckdb
+data/local/
+
+# Logs
+logs/
+*.log
+*.log.*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Node (only if any tool drags it in)
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# IB / cTrader runtime artifacts
+flex_queries/*.xml
+flex_cache/
+ib_session/
+ctrader_session/
+*.token
+
+# BMad runtime / cache
+.bmad-cache/
+_bmad-output/implementation-artifacts/cache/
+_bmad-output/test-artifacts/cache/
+
+# Ralph / autonomous loops (rejected pattern from ctrader2 — guardrail)
+.ralph/
+claude_output_*.log
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
