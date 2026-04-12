@@ -43,6 +43,9 @@ scopeDecisions:
   csvTaxExportReason: Broker (IB + cTrader) handle tax reporting directly — no regulatory obligation for the software
   personas: single-user-chef-only
   prdStructure: two-phase-with-phase2-appendix
+  ibQuickOrder: aktien-only-trailing-stop-loss-slice-a-woche-3
+  ibQuickOrderReason: TWS-Stop-Loss-Setup ist mühselig bei jedem Swing-Trade; Bracket Order via ib_async ist technisch trivial und dockt an bestehende Woche-3-Infrastruktur an. Options Phase 2, kein Descope-Gegengewicht.
+  ibQuickOrderDate: '2026-04-12'
   auditLog: retained-for-provenance-not-compliance
 gapAnalysis:
   date: '2026-04-11'
@@ -85,11 +88,11 @@ gapAnalysis:
 
 **Author:** Chef
 **Date:** 2026-04-10
-**Last Updated:** 2026-04-11 (Gap-Analyse gegen TraderSync/Tradervue/Edgewonk eingearbeitet)
+**Last Updated:** 2026-04-12 (IB Quick-Order mit Trailing Stop-Loss als Scope-Erweiterung für Slice A aufgenommen)
 
 ## Executive Summary
 
-**ctrader** ist eine persönliche Trading-Werkstatt, in der ein disziplinierter Retail-Trader seine human-gated AI-Agent-Farm orchestriert und jede Strategie — über Daytrading und Swing-Trading hinweg, bei Interactive Brokers und cTrader — bis auf den ursprünglichen Trigger zurückverfolgen, vergleichen und empirisch bewerten kann. Die Plattform vereint ein **Trade-Journal für manuelle Aktien- und Options-Trades** (IB, read-only Sync) mit einer **human-gated AI-Agent-Execution für Crypto und CFDs** (cTrader Demo) in einer einzigen UI mit einem gemeinsamen Schema — gebaut von und für Christian als einzigen Nutzer.
+**ctrader** ist eine persönliche Trading-Werkstatt, in der ein disziplinierter Retail-Trader seine human-gated AI-Agent-Farm orchestriert und jede Strategie — über Daytrading und Swing-Trading hinweg, bei Interactive Brokers und cTrader — bis auf den ursprünglichen Trigger zurückverfolgen, vergleichen und empirisch bewerten kann. Die Plattform vereint ein **Trade-Journal für manuelle Aktien- und Options-Trades** (IB, Sync + Quick-Order mit Trailing Stop-Loss) mit einer **human-gated AI-Agent-Execution für Crypto und CFDs** (cTrader Demo) in einer einzigen UI mit einem gemeinsamen Schema — gebaut von und für Christian als einzigen Nutzer.
 
 Der zentrale Anspruch: **Trigger-Provenance ist ein Schema-Konzept, kein Notizfeld.** Jeder Trade — ob vom Bot ausgeführt oder von Hand gesetzt — wird mit strukturierter `trigger_spec` (JSONB), Confidence-Band und den damaligen Fundamental-Einschätzungen der `fundamental`-Agents (Viktor, Satoshi, Rita, Cassandra, Gordon) gespeichert. Das Journal ist damit nicht nur ein Post-Mortem-Tool, sondern eine **Query-Oberfläche über das Warum** jeder Entscheidung. Die Leitfrage, die keine existierende Plattform beantworten kann: *"Zeig mir alle Verlust-Trades, bei denen ich einen Viktor-Red-Flag überstimmt habe."*
 
@@ -102,7 +105,7 @@ ctrader ist die persönliche Antwort auf ein 2026er Dilemma: Diskretionäres Day
 - **Strategien als erste Klasse + Trigger-Provenance als durchsuchbares Schema.** Kein verfügbares Tool (TradeZella, TraderSync, Tradervue, Edgewonk) speichert das *Warum* strukturiert genug, um es zur Such- und Vergleichsdimension zu machen. ctrader tut das.
 - **`fundamental`-Agents als Co-Autoren ab Tag 1.** Jede Strategy-Proposal zeigt Agent-Vorschlag und Fundamental-Einschätzung side-by-side. Rita und Cassandra laufen als automatisches Risk-Gate **vor** dem Approval-Button — ohne Green-Flag kein Approval.
 - **Horizon-agnostisch: Daytrading und Swing gleichberechtigt.** Der Trading-Horizont ist Strategie-Parameter, nicht Plattform-Default. Die Plattform zeigt dem Trader empirisch, welcher Horizont und welche Strategien für ihn konsistent profitabel sind.
-- **Zwei Broker, ein Journal, ein Schema.** IB für Aktien/Optionen manuell, cTrader für Crypto/CFDs via Bot. Gleiche Metriken, gleiche Provenance-Linse, keine Tool-Silos.
+- **Zwei Broker, ein Journal, ein Schema.** IB für Aktien manuell + Quick-Order mit Trailing Stop-Loss, cTrader für Crypto/CFDs via Bot. Gleiche Metriken, gleiche Provenance-Linse, keine Tool-Silos.
 - **Review-Geschwindigkeit als Design-Prinzip.** Der kognitive Aufwand eines Reviews ist kleiner als der Aufwand einer Trade-Analyse. Klickpfade sind kurz, der relevante Kontext steht im selben Viewport, Facettenfilter sind Ein-Klick.
 - **Expectancy statt Win-Rate als Leitmetrik.** Das Journal zeigt beides, priorisiert aber Expectancy und R-Multiple im Review-UI — weil Win-Rate ohne Risk-Reward bedeutungslos ist.
 - **Regime-bewusst mit Kill-Switch.** Fear & Greed, VIX und Per-Broker-P&L werden täglich snapshotted; Horizont-bewusst pausiert der Kill-Switch Bot-Execution automatisch bei Risiko-Regimen, ohne Swing-Strategien unnötig zu stoppen.
@@ -173,7 +176,7 @@ Zusammengefasst die **fünf Zahlen**, an denen Ende Woche 8 Erfolg oder Misserfo
 
 - Woche 0 (<1 Tag Vorarbeit): `fundamental`-MCP-Contract ziehen und einfrieren. Handshake-Test. DuckDB + FastAPI-Skelett. "Hello World"-Seite, die einen MCP-Call rendert.
 - Woche 1–2: IB Flex Query Import, DuckDB-Schema mit `trade`-Tabelle (inkl. `horizon`, `agent_id`, `trigger_spec` JSONB), `taxonomy.yaml` extrahiert, statische Journal-Seite aller historischen Trades.
-- Woche 3: Live IB Sync via `ib_async`, Facettenfilter-UI, Post-hoc-Tagging-UI für manuelle Trades.
+- Woche 3: Live IB Sync via `ib_async`, Facettenfilter-UI, Post-hoc-Tagging-UI für manuelle Trades, **IB Quick-Order mit Trailing Stop-Loss** (Aktien-only, Bracket Order via `ib_async`, UI direkt aus Journal/Watchlist).
 - Woche 4: Viktor/Satoshi-Integration in die Journal-Drilldown-Ansicht — zeige für jeden Trade die damalige/aktuelle Fundamental-Einschätzung side-by-side.
 - **Ende Woche 4: Vollständig benutzbares Journal. Wenn hier nichts Shippbares steht, stopp und descope (siehe Ladder).**
 
@@ -193,7 +196,8 @@ Zusammengefasst die **fünf Zahlen**, an denen Ende Woche 8 Erfolg oder Misserfo
 - **CSV-Tax-Export.** Steuerreporting läuft direkt über die Broker (IB + cTrader), das Produkt muss keinen Abgeltungsteuer-CSV liefern.
 - Skalierung auf 10 Bot-Agents × 20k €. Die `agent_id`-Spalte bleibt die einzige Konzession.
 - cTrader Live-Modus. Demo only im MVP.
-- Multi-Leg Options-Spreads. Single-Leg Optionen bleiben, Multi-Leg ist Phase 2.
+- Multi-Leg Options-Spreads. Single-Leg Optionen bleiben (Sync + Tagging), Multi-Leg ist Phase 2.
+- **Options-Order-Platzierung via TWS API.** Im MVP werden nur Aktien-Orders über die Quick-Order-Funktion platziert. Options-Order-Platzierung (erfordert vollständige Kontraktspezifikation mit Strike, Expiry, Right, Multiplier) ist Phase 2.
 - Agent-generierter automatischer Strategie-Verbesserungsvorschlag. Nur Freitext-Notizen.
 - Counterfactual-/Cohort-Analyse, "Replay Trigger"-UI, eigene Backtest-Engine, eigene News-/Trend-Engine, eigene Indikator-Bibliothek (direkt `pandas-ta` aufrufen), Mobile, Auth jenseits lokaler Absicherung, Multi-User.
 - Code-Archäologie in `ctrader`/`ctrader2` jenseits des 1-Tages-Spikes.
@@ -205,6 +209,7 @@ Zusammengefasst die **fünf Zahlen**, an denen Ende Woche 8 Erfolg oder Misserfo
 **Agent- und Execution-Erweiterungen:**
 - **Mehrere Bot-Agents parallel** mit Mandat-Isolation (Momentum, Mean-Reversion, News-Driven, Fundamental-Long, Regime-Adaptive, …), jeder mit eigener Strategie-Historie.
 - **cTrader Live-Modus** (erst nach 50+ erfolgreichen Demo-Trades mit Expectancy > 0).
+- **Options-Order-Platzierung via TWS API** (Single-Leg Options mit Trailing Stop-Loss — erfordert vollständige Kontraktspezifikation mit Strike/Expiry/Right/Multiplier, deutlich aufwändiger als Aktien-Orders).
 - **Multi-Leg Options-Spreads** und erweiterte IB-Options-Integration.
 - **Erweiterte Trigger-Quellen:** On-Chain für Crypto, Options-Flow für Aktien, Sentiment-Feeds — alles über `fundamental`-MCP-Erweiterungen, nicht in ctrader.
 - **Strategy-Notizen mit LLM-Verbesserungsvorschlag** (optional, per Klick, mit explizitem Opt-In — nie automatisch).
@@ -358,14 +363,44 @@ Alle Journeys haben denselben User — Chef. Was variiert, ist der **Modus**, in
 - Regime-Snapshot-Cron (täglich) + horizon-bewusster Kill-Switch
 - Kill-Switch-Override-UI mit Audit-Log-Eintrag
 
+### Journey 6 — Quick Order mit Trailing Stop-Loss bei IB (Swing-Trade-Einstieg)
+
+**Modus:** Aktiver Trader
+**Auslöser:** Chef hat seine Analyse abgeschlossen (Viktor-Einschätzung gelesen, Chart geprüft, Trigger-Spec im Kopf) und will einen Aktien-Swing-Trade bei Interactive Brokers aufsetzen — inklusive automatischem Trailing Stop-Loss, ohne dafür in die TWS wechseln zu müssen.
+
+**Ablauf:**
+1. **Einstieg aus dem Journal oder der Watchlist.** Chef sieht ein Asset (z.B. aus dem Gordon-HOT-Pick oder aus eigenem Research) und klickt "Quick Order". Das öffnet ein kompaktes Order-Formular inline oder als Modal.
+2. **Order-Eingabe.** Chef gibt ein: **Symbol** (vorausgefüllt aus Kontext), **Side** (Buy/Sell), **Quantity**, **Limit-Preis** (Entry), **Trailing Stop Amount** (absolut oder prozentual). Das Formular zeigt das berechnete initiale Stop-Level als Vorschau.
+3. **Bestätigung.** Chef prüft die Zusammenfassung (Symbol, Seite, Menge, Limit, Trailing-Stop-Betrag, geschätztes Risiko in $) und bestätigt mit einem expliziten "Order senden"-Button. Es gibt keine "One-Click"-Platzierung — die Bestätigung ist Pflicht.
+4. **Bracket-Submission.** ctrader sendet eine Bracket Order via `ib_async`: Parent-Order (Limit Buy/Sell) mit `transmit=False`, Child-Order (Trailing Stop) mit `transmit=True`. Beide Orders werden mit einer `orderRef` verknüpft, die ctrader generiert (Idempotenz-Key).
+5. **Status-Tracking.** Die Order erscheint im Journal mit Status `submitted`. Sobald IB die Parent-Order füllt, wechselt der Status auf `filled` und der Trailing Stop wird automatisch aktiv (IB-serverseitig). Chef sieht den aktuellen Order-Status im Journal-Eintrag.
+6. **Automatisches Tagging.** Der Trade wird im Journal als `auto-tagged` mit Trigger-Quelle und Strategie aus dem Quick-Order-Formular eingetragen — kein Post-hoc-Tagging nötig, weil der Kontext zum Zeitpunkt der Order-Platzierung bekannt ist.
+
+**Kritischer Moment:** Schritt 3. Die Bestätigung muss **alle entscheidungsrelevanten Zahlen** in einem Blick zeigen. Kein Scrollen, kein zweiter Dialog. Und: der Trailing-Stop-Betrag muss prominent sein — das ist der ganze Sinn dieses Features, nicht eine Nebensache.
+
+**Scope-Grenzen dieser Journey:**
+- **Nur Aktien** im MVP. Options-Orders erfordern vollständige Kontraktspezifikation (Strike, Expiry, Right, Multiplier) — das ist ein eigenes UI und Phase 2.
+- **Kein nachträgliches Editieren** von Stop-Loss-Parametern aus ctrader heraus. Wenn Chef den Trailing Stop anpassen will, macht er das direkt in TWS. ctrader ist Entry-Punkt, nicht Order-Management-System.
+- **Kein Take-Profit als dritte Bracket-Leg.** Trailing Stop-Loss ersetzt das — IB managed das Trailing serverseitig.
+- **Trailing Stop-Loss wird von IB verwaltet.** ctrader sendet die Order einmal, danach liegt die Verantwortung bei IB. Kein lokales Trailing-Monitoring.
+
+**Requirements, die diese Journey freisetzt:**
+- Quick-Order-UI (kompaktes Formular aus Journal/Watchlist-Kontext) — Slice A, Woche 3
+- Bracket-Order-Submission via `ib_async` (Parent Limit + Child Trailing Stop)
+- `orderRef`-Generierung für Idempotenz (wiederverwendet die bestehende Client-Order-ID-Logik)
+- Order-Status-Tracking (submitted / filled / partial / rejected / cancelled) für IB-Orders
+- Automatisches Trigger-Tagging bei Order-Platzierung (kein Post-hoc-Tagging nötig)
+- TWS/Gateway-Verbindung (bereits Voraussetzung für Live-Sync)
+
 ### Journey Requirements Summary
 
-Die fünf Journeys setzen insgesamt folgende **Capability-Cluster** frei, die im FR/NFR-Kapitel strukturiert werden:
+Die sechs Journeys setzen insgesamt folgende **Capability-Cluster** frei, die im FR/NFR-Kapitel strukturiert werden:
 
 | Cluster | Journeys | Slice |
 |---|---|---|
 | **IB Data Ingestion** (Flex + Live Sync) | J1 | A (Wochen 1–3) |
-| **Trade Journal + Drilldown** | J1, J4 | A (Wochen 0–4) |
+| **IB Quick-Order** (Bracket mit Trailing Stop-Loss) | J6 | A (Woche 3) |
+| **Trade Journal + Drilldown** | J1, J4, J6 | A (Wochen 0–4) |
 | **Taxonomy + Post-hoc Tagging** | J1, J4 | A (Wochen 2–3) |
 | **Facettenfilter über `trigger_spec`** | J4 | A (Woche 3) |
 | **MCP-Integration Viktor/Satoshi/Gordon** | J1, J2, J5 | A+B |
@@ -390,8 +425,10 @@ Zwei Broker mit sehr unterschiedlichen API-Charakteristika. Beide müssen als **
 **Interactive Brokers (`ib_async` + Flex Query):**
 - Verbindung läuft über TWS oder IB Gateway als lokalen Proxy; die Software muss wissen, dass TWS/Gateway zwischenzeitlich auto-reconnect machen (nächtliche Wartung, Session-Reset um Mitternacht) und die ctrader-Session entsprechend resilient sein (Auto-Reconnect mit Backoff, State-Recovery nach Reconnect).
 - `ib_async` ist der moderne, gewartete Fork — Entscheidung steht, nicht neu eröffnen. `ib_insync` ist tabu (unmaintained seit 2023).
-- **Flex Queries** sind das offizielle Tool für historische Reconciliation — sie werden als Batch-Job (täglich über Nacht) gezogen, nicht als Live-Query. Das Resultat ist ein XML, das idempotent in die DuckDB eingelesen wird.
+- **Flex Queries** sind das offizielle Tool für historische Reconciliation — sie werden als Batch-Job (täglich über Nacht) gezogen, nicht als Live-Query. Das Resultat ist ein XML, das idempotent in die PostgreSQL eingelesen wird.
 - **Dual-Source-Reconciliation:** Live-Sync (`ib_async`) und Flex-Query-Nightly müssen konsistent sein. Bei Abweichungen wird Flex als Source-of-Truth behandelt, der Live-Sync wird korrigiert — nicht umgekehrt.
+- **Order-Platzierung (Aktien-only im MVP):** ctrader platziert Bracket Orders via `ib_async` bestehend aus einer Parent-Order (Limit Buy/Sell) und einer Child-Order (Trailing Stop-Loss). TWS/Gateway verwaltet das Trailing serverseitig — ctrader sendet die Order einmal und trackt danach nur den Status. `ib_async` bietet `bracketOrder()` als Convenience-Methode; die Parent-Order wird mit `transmit=False` gesendet, die letzte Child-Order mit `transmit=True`, um atomare Submission zu gewährleisten. **Options-Order-Platzierung ist explizit Phase 2** — die Kontraktspezifikation (Strike, Expiry, Right, Multiplier) und die Ambiguity-Auflösung über `reqContractDetails` erfordern ein eigenes UI.
+- **Idempotenz bei Order-Platzierung:** Jede Order erhält eine von ctrader generierte `orderRef` (Client-Order-ID). Bei Retry nach Netzausfall oder Timeout erkennt IB die Duplikat-Order anhand der `orderRef` und lehnt sie ab — kein Doppel-Trade.
 
 **cTrader (OpenApiPy / Protobuf):**
 - Protobuf-basiertes API, Session-Auth, Rate-Limits unterhalb der öffentlichen Dokumentation (aus Erfahrung der Vorprojekte).
@@ -687,12 +724,13 @@ Aus den Operational Risks (Domain-Requirements) + Resource Risks (oben) priorisi
 | 6 | DuckDB-Datei-Korruption | Backup-Recovery nötig | Tägliches Backup + dokumentierte Recovery-Prozedur |
 | 7 | Regime-Kill-Switch fälschlich ausgelöst | Legitime Strategien pausieren | Manuelle Override + Audit-Log-Eintrag |
 | 8 | Post-hoc-Tagging wird vergessen | "Untagged"-Zähler steigt | Prominente UI-Anzeige; kein Alarm, Ermessen |
+| 9 | IB-Quick-Order-Doppelausführung bei TWS-Reconnect | Zwei identische Positionen bei IB | `orderRef`-basierte Idempotenz (NFR-R3a); Bracket-Order mit `transmit=False`/`True`-Pattern |
 
 Ränge 1–3 sind **Hochrisiko mit hoher Wahrscheinlichkeit** — sie brauchen explizite Aufmerksamkeit in Woche 0/1. Ränge 4–5 sind **Hochrisiko mit moderater Wahrscheinlichkeit** und werden durch die Descope-Ladder abgefangen. Ränge 6–8 sind **niedrigere Wahrscheinlichkeit**, werden aber wegen des Single-User-Kontexts ohne Alarm-Systeme bewusst beobachtet statt automatisiert.
 
 ## Functional Requirements
 
-Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar und implementation-agnostic. Die FRs sind in 8 Capability-Areas organisiert, die den Capability-Clustern aus der *Journey Requirements Summary* entsprechen. Features, die hier nicht stehen, werden im MVP nicht gebaut.
+Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar und implementation-agnostic. Die FRs sind in 9 Capability-Areas organisiert, die den Capability-Clustern aus der *Journey Requirements Summary* entsprechen. Features, die hier nicht stehen, werden im MVP nicht gebaut.
 
 ### 1. Trade Data Ingestion
 
@@ -775,7 +813,21 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 - **FR51:** Das System führt alle DuckDB-Schema-Änderungen ausschließlich über versionierte, idempotente Migrations-Skripte aus (`migrations/001_*.sql`, etc.) mit Tracking in einer `schema_migrations`-Meta-Tabelle.
 - **FR52:** Das System erstellt tägliche DuckDB-Backups via `COPY TO` in ein separates Verzeichnis; die Recovery-Prozedur ist im Project-Knowledge dokumentiert.
 
-**Capability-Contract-Hinweis:** Diese 52 FRs sind **bindend** für alle Downstream-Workflows (UX Design, Architektur, Epic Breakdown, Story Implementation). Features außerhalb dieser Liste werden im MVP nicht implementiert, außer sie werden explizit als Änderung dieses Kapitels dokumentiert. Die Descope-Ladder (siehe oben) definiert, welche FR-Cluster im Ernstfall zurückgefahren werden.
+### 9. IB Quick-Order (Aktien mit Trailing Stop-Loss)
+
+- **FR53:** Chef kann aus dem Journal oder der Watchlist heraus eine **Quick-Order** für eine IB-Aktie aufgeben, bestehend aus: Symbol (vorausgefüllt aus Kontext), Side (Buy/Sell), Quantity, Limit-Preis, Trailing-Stop-Amount (absolut in $ oder prozentual).
+- **FR54:** Das System zeigt vor Absendung eine **Bestätigungs-Zusammenfassung** mit allen Order-Parametern (Symbol, Seite, Menge, Limit, Trailing-Stop-Betrag, berechnetes initiales Stop-Level, geschätztes Risiko in $). Die Bestätigung erfordert einen expliziten Klick — keine One-Click-Platzierung.
+- **FR55:** Das System sendet die Order als **Bracket Order** via `ib_async`: Parent-Order (Limit) + Child-Order (Trailing Stop-Loss). Die Submission ist atomar (`transmit=False` auf Parent, `transmit=True` auf letzter Child-Order). Jede Order erhält eine von ctrader generierte `orderRef` für Idempotenz.
+- **FR56:** Das System trackt den **Order-Status** für IB-Quick-Orders (submitted / filled / partial / rejected / cancelled) und aktualisiert den zugehörigen Journal-Eintrag.
+- **FR57:** Bei Order-Platzierung über Quick-Order wird der Trade automatisch mit Strategie, Trigger-Quelle und Horizon aus dem Quick-Order-Formular getaggt (**auto-tagged** statt `untagged`). Kein Post-hoc-Tagging nötig.
+- **FR58:** Das System unterscheidet im UI klar zwischen Fehlern, die ein Retry rechtfertigen (transient: Netzausfall, TWS-Reconnect) und solchen, die eine Aktion erfordern (terminal: Margin-Fehler, ungültiges Symbol, Markt geschlossen). Bei transienten Fehlern wird der Retry automatisch ausgeführt (max 3×, mit Backoff); bei terminalen Fehlern sieht Chef eine klare Fehlermeldung.
+
+**Scope-Einschränkungen (bindend):**
+- **Nur Aktien.** Options-Order-Platzierung ist Phase 2 (erfordert vollständige Kontraktspezifikation mit Strike/Expiry/Right/Multiplier und ein eigenes UI).
+- **Kein nachträgliches Editieren** von Order-Parametern (Stop-Loss-Anpassung etc.) aus ctrader. Dafür TWS direkt verwenden.
+- **Kein Take-Profit** als dritte Bracket-Leg. Trailing Stop-Loss ersetzt das — IB managed das Trailing serverseitig.
+
+**Capability-Contract-Hinweis:** Diese 58 FRs (FR1–FR52 + FR53–FR58) sind **bindend** für alle Downstream-Workflows (UX Design, Architektur, Epic Breakdown, Story Implementation). Features außerhalb dieser Liste werden im MVP nicht implementiert, außer sie werden explizit als Änderung dieses Kapitels dokumentiert. Die Descope-Ladder (siehe oben) definiert, welche FR-Cluster im Ernstfall zurückgefahren werden.
 
 ## Non-Functional Requirements
 
@@ -811,6 +863,8 @@ Reliability ist das wichtigste NFR-Kapitel für ctrader, weil Trade-Daten-Verlus
 - **NFR-R1:** Die IB-Sync-Pipeline (Live + Nightly) erkennt Duplikate deterministisch anhand der Broker-Unique-ID (`permId`) und verhindert Doppel-Einträge. Testbar durch wiederholtes Einlesen desselben Flex-Query-XMLs: **die DB-Row-Count darf sich nicht ändern.**
 - **NFR-R2:** Der Live-IB-Sync übersteht TWS/Gateway-Reconnects (nächtliche Wartung, Session-Reset) mit automatischem Auto-Reconnect und State-Recovery, ohne dass Trades verloren gehen. Verifiziert durch das **Dual-Source-Reconciliation-Kriterium** (Flex-Nightly als Source-of-Truth korrigiert Live-Lücken).
 - **NFR-R3:** Genehmigte Bot-Orders sind idempotent: Ein Retry nach Netzausfall oder Timeout darf **keinen Doppel-Order** erzeugen. Testbar durch Replay des Order-Submit mit identischer Client-Order-ID.
+- **NFR-R3a:** IB-Quick-Orders (FR55) sind idempotent: Die `orderRef` (Client-Order-ID) ist der Idempotenz-Key. Ein Retry nach TWS-Reconnect oder Netzausfall darf keinen Doppel-Trade erzeugen. Testbar durch Replay des `placeOrder`-Calls mit identischer `orderRef`.
+- **NFR-R3b:** Die Quick-Order-Bestätigungs-UI (FR54) zeigt **alle entscheidungsrelevanten Zahlen** (Symbol, Seite, Menge, Limit, Trailing-Stop-Betrag, initiales Stop-Level, geschätztes Risiko in $) **ohne Scrollen in einem Viewport**. Kein zweiter Dialog, kein versteckter Parameter.
 - **NFR-R4:** Der MCP-Contract-Test (FR24) läuft täglich erfolgreich. Bei Abweichung erscheint ein UI-Warnbanner binnen 24 Stunden nach Drift, der Trade-Flow ist nicht blockiert.
 - **NFR-R5:** Tägliche DuckDB-Backups (FR52) schreiben erfolgreich in das Backup-Verzeichnis mit einem Alter ≤ 24 Stunden. Der Health-Widget (FR50) zeigt den Zeitstempel des letzten erfolgreichen Backups sichtbar.
 - **NFR-R6:** Graceful Degradation bei MCP-Outage: Die Journal-, Strategy- und Regime-Views bleiben funktional, Fundamental-Einschätzungen zeigen einen klaren "Nicht verfügbar"-Zustand (FR23). Der Approval-Flow ist entsprechend behandelt — bei MCP-Timeout vor Risk-Gate wird das Proposal in einen expliziten "Risk-Gate nicht erreichbar, Approval blockiert"-Zustand gesetzt (siehe Operational Risks Tabelle).
