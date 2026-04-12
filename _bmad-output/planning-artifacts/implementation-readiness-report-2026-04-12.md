@@ -594,3 +594,54 @@ Die Epics sind **nicht perfekt, aber production-ready**. Die gefundenen Issues z
 **Assessment durchgeführt am:** 2026-04-12
 **Assessor:** John (Product Manager) via BMad check-implementation-readiness
 **Workflow-Version:** BMM 6.3.0
+
+---
+
+## Errata & Fix-Log (2026-04-12, nach Assessment)
+
+### Korrektur: Concern m5 (Alpine.js) war False-Positive
+
+Die Readiness-Review hatte flaeschlich behauptet, Alpine.js sei nicht in der Architecture dokumentiert. Nachprüfung ergab:
+
+- `architecture.md` Zeile 65 (Locked Tech Decision): "Alpine.js nur für Command Palette"
+- `architecture.md` Zeile 273 (Frontend Architecture): "Alpine.js ausschließlich für Command Palette (`Ctrl+K`) und Multi-Select-Facettenfilter"
+- `architecture.md` Zeile 612 (File Structure): `alpine.min.js` als lokales Vendor-File
+
+**Concern m5 wird als erfüllt (false-positive) markiert.** Der Overall Score wird von 93 auf **94/100** korrigiert.
+
+### Angewendete Fixes (Commit nach Assessment)
+
+Die folgenden Issues wurden direkt in `epics.md` nachgebessert:
+
+1. **Issue M1 — trades-Tabelle FK-Timing** ✅ gefixt
+   - Story 2.1: strategy_id und agent_id aus Tabellen-Definition entfernt, mit Hinweis auf spaetere ALTER TABLE
+   - Story 6.1: Neue AC fuer `ALTER TABLE trades ADD COLUMN strategy_id INT REFERENCES strategies(id)`
+   - Story 8.1: Neue AC fuer `ALTER TABLE trades ADD COLUMN agent_id TEXT`
+
+2. **Issue M2 — Story 4.1 Facet-Completeness-Promise** ✅ gefixt
+   - AC umformuliert als "Facet-Framework implementiert mit initial verfügbaren Facetten (Asset-Class, Broker, Horizon); weitere Facetten werden mit ihren Epics aktiviert"
+   - Zusaetzliche AC fuer Graceful Degradation bei noch-nicht-verfügbaren Facetten
+
+3. **Concern m3 — ohlc_candles-Migration** ✅ gefixt
+   - Story 4.3 um explizite Migration-AC ergaenzt: Tabelle mit (id, symbol, timeframe, ts, OHLCV, cached_at, UNIQUE, Index)
+
+4. **Concern m2 — Story 3.1 Strategy-Dropdown Taxonomie-Fallback** ✅ gefixt
+   - Zwei neue ACs: Pre-Epic-6 nutzt taxonomy.yaml-Kategorien, Post-Epic-6 nutzt strategies-Tabelle
+
+5. **Concern m5 — Alpine.js in Architecture** ⚪ no-op (False-Positive, siehe Errata oben)
+
+### Offene Pre-Flight-Entscheidung
+
+**UX-Scope-Adds in PRD nachdokumentieren?**
+
+Command Palette, CSV-Export, Save-Query und URL-Sharing sind in Epics (Story 4.6, 4.7), aber nicht in PRD als FR. Chef muss entscheiden, ob er diese als FR59-FR62 nachträgt oder als "UX-Polish" mit rauscuttbarem Status belässt. Diese Entscheidung ist unabhängig von den angewendeten Fixes.
+
+### Aktualisierter Score
+
+**94/100 Implementation-Ready** (nach Fixes)
+
+- ✅ Issue M1: gefixt (+3)
+- ✅ Issue M2: gefixt (+2)
+- ✅ Concern m3: gefixt (+1)
+- ⚪ Concern m5: False-Positive (+1)
+- -3 verbleibend: Concerns m1/m2/m4 (akzeptierte Design-Entscheidungen / UX-Scope-Adds offen)

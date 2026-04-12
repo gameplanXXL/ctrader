@@ -767,7 +767,9 @@ so that my trading history is captured in ctrader from day one.
 
 **Given** die App startet mit neuer Migration
 **When** migrate laeuft
-**Then** wird die `trades`-Tabelle erstellt mit: id, symbol, asset_class, side, quantity, entry_price, exit_price, opened_at (TIMESTAMPTZ), closed_at, pnl, fees, broker (trade_source enum), perm_id, strategy_id, trigger_spec (JSONB), agent_id, und allen relevanten Indizes (FR1, FR2)
+**Then** wird die `trades`-Tabelle erstellt mit: id, symbol, asset_class, side, quantity, entry_price, exit_price, opened_at (TIMESTAMPTZ), closed_at, pnl, fees, broker (trade_source enum), perm_id, trigger_spec (JSONB), und allen relevanten Indizes (FR1, FR2)
+
+**Hinweis:** `strategy_id` und `agent_id` werden NICHT in dieser Story angelegt, da die referenzierten Tabellen erst in spaeteren Epics erstellt werden. Die Spalten werden per ALTER TABLE ergaenzt in Story 6.1 (strategy_id) und Story 8.1 (agent_id).
 
 **Given** eine IB Flex Query XML-Datei mit Aktien-Trades
 **When** der Import ausgefuehrt wird
@@ -891,6 +893,14 @@ so that I can later analyze my trading patterns and decision quality.
 **When** das Tagging-Formular angezeigt wird
 **Then** enthaelt es: Strategy-Dropdown, Trigger-Source, Horizon, Exit-Reason (4 Pflichtfelder) plus optionale Mistake-Tags und Freitext-Notiz (FR15, UX-DR58)
 
+**Given** das Strategy-Dropdown
+**When** gerendert vor Epic 6 (strategies-Tabelle existiert noch nicht)
+**Then** zeigt es die Strategie-Kategorien aus `taxonomy.yaml` als Auswahl-Werte an (Fallback-Quelle)
+
+**Given** das Strategy-Dropdown
+**When** gerendert nach Epic 6 (strategies-Tabelle existiert)
+**Then** zeigt es die user-definierten Strategie-Instanzen aus der strategies-Tabelle an (mit Upgrade-Pfad fuer existierende Tags von Kategorie-Strings auf strategy_id)
+
 **Given** das Tagging-Formular
 **When** geoeffnet
 **Then** ist das erste Feld auto-fokussiert, Tab navigiert zwischen Feldern, Enter auf dem letzten Feld speichert sofort (kein Submit-Button) (UX-DR58, UX-DR62)
@@ -995,7 +1005,11 @@ so that I can quickly find specific trade patterns and answer analytical questio
 
 **Given** die Journal-Startseite
 **When** Facetten angezeigt werden
-**Then** sind alle 8 Pflicht-Facetten verfuegbar: Asset-Class, Broker, Strategy, Trigger-Source, Horizon, Followed-vs-Override, Confidence-Band, Regime-Tag (FR10, UX-DR47)
+**Then** ist das Facet-Framework implementiert und zeigt die initial verfuegbaren Facetten an: Asset-Class, Broker, Horizon (basieren auf Daten aus Epic 2). Das Framework ist so gebaut, dass weitere Facetten automatisch aktiviert werden, sobald die zugehoerigen Spalten/Datenquellen in spaeteren Epics landen: Strategy (Epic 6), Trigger-Source (Epic 5/10), Followed-vs-Override (Epic 7), Confidence-Band (Epic 7), Regime-Tag (Epic 9). FR10 ist final erfuellt, wenn alle 8 Facetten aktiv sind (spaetestens mit Abschluss Epic 9). (FR10, UX-DR47)
+
+**Given** eine noch nicht implementierte Facette (z.B. Strategy vor Abschluss Epic 6)
+**When** die Facet-Bar gerendert wird
+**Then** wird die Facette ausgeblendet ODER als "keine Werte" disabled angezeigt — kein Fehler, kein leerer Dropdown (Graceful Degradation)
 
 **Given** eine Facette
 **When** ein Wert angeklickt wird
@@ -1061,9 +1075,13 @@ so that I can evaluate my entry timing and stop-loss placement.
 **When** MAE/MFE berechnet werden soll
 **Then** werden Intraday-Candle-Daten (1m/5m) via ib_async reqHistoricalData() geholt; bei Fehler Fallback auf Binance/Kraken API oder fundamental/price MCP
 
+**Given** die App startet mit neuer Migration
+**When** migrate laeuft
+**Then** wird die `ohlc_candles`-Tabelle erstellt mit: id, symbol, timeframe (enum: '1m','5m'), ts (TIMESTAMPTZ), open, high, low, close, volume, cached_at (TIMESTAMPTZ), UNIQUE (symbol, timeframe, ts), `idx_ohlc_candles_symbol_ts` Index
+
 **Given** die Candle-Daten
 **When** geholt
-**Then** werden sie in der ohlc_candles-Tabelle mit 24h TTL gecached (NFR-I6)
+**Then** werden sie in der ohlc_candles-Tabelle mit 24h TTL gecached (Cache-Lookup prueft `cached_at > now() - interval '24 hours'`) (NFR-I6)
 
 **Given** die Datenquelle ist nicht erreichbar
 **When** MAE/MFE berechnet werden soll
@@ -1284,6 +1302,10 @@ so that I can systematically track the performance of each approach.
 **Given** die App startet mit neuer Migration
 **When** migrate laeuft
 **Then** wird die `strategies`-Tabelle erstellt mit: id, name, asset_class, horizon (horizon_type enum), typical_holding_period, trigger_sources (JSONB array), risk_budget_per_trade, status (strategy_status enum: active/paused/retired), created_at, updated_at (FR33)
+
+**Given** dieselbe Migration
+**When** migrate laeuft
+**Then** wird die trades-Tabelle per `ALTER TABLE trades ADD COLUMN strategy_id INT REFERENCES strategies(id) ON DELETE SET NULL` erweitert inklusive `idx_trades_strategy_id` Index (schliesst Issue M1 der Readiness-Review)
 
 **Given** die Strategies-Seite
 **When** "Neue Strategie" geklickt wird
@@ -1512,6 +1534,10 @@ so that AI-recommended trades are placed automatically after my approval.
 **Given** ein genehmigtes Proposal
 **When** die Execution getriggert wird
 **Then** verbindet sich das System via OpenApiPy (Protobuf/SSL) mit dem cTrader-Demo-Account und platziert die Order (FR6)
+
+**Given** die App startet mit neuer Migration
+**When** migrate laeuft
+**Then** wird die trades-Tabelle per `ALTER TABLE trades ADD COLUMN agent_id TEXT` erweitert inklusive `idx_trades_agent_id` Index (schliesst Issue M1 der Readiness-Review; agent_id ist TEXT als Multi-Agent-Konzession aus dem MVP-Scope)
 
 **Given** ein genehmigtes Proposal
 **When** die Order gesendet wird
