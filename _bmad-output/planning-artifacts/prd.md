@@ -827,7 +827,16 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 - **Kein nachträgliches Editieren** von Order-Parametern (Stop-Loss-Anpassung etc.) aus ctrader. Dafür TWS direkt verwenden.
 - **Kein Take-Profit** als dritte Bracket-Leg. Trailing Stop-Loss ersetzt das — IB managed das Trailing serverseitig.
 
-**Capability-Contract-Hinweis:** Diese 58 FRs (FR1–FR52 + FR53–FR58) sind **bindend** für alle Downstream-Workflows (UX Design, Architektur, Epic Breakdown, Story Implementation). Features außerhalb dieser Liste werden im MVP nicht implementiert, außer sie werden explizit als Änderung dieses Kapitels dokumentiert. Die Descope-Ladder (siehe oben) definiert, welche FR-Cluster im Ernstfall zurückgefahren werden.
+### Power-User-UX (FR59–FR62) — nachträglich aus UX-Spec in PRD überführt am 2026-04-12
+
+Diese vier Features stammen aus der UX Design Specification und wurden beim Epic-Breakdown pragmatisch in die Epics aufgenommen. Nach dem Implementation Readiness Review vom 2026-04-12 sind sie hier als formelle FRs nachdokumentiert, um Traceability zwischen PRD und Epics sicherzustellen. Alle vier sind niedrig-Aufwand, hoch-Wert und passen konsistent zu Chefs Keyboard-First-Power-User-Profil.
+
+- **FR59:** Chef kann via **Command Palette (`Ctrl+K`)** per Fuzzy-Search schnell zu beliebigen Views, Strategien, Trade-IDs oder gespeicherten Query-Presets navigieren, ohne Maus-Navigation. Die Palette öffnet sich als 600px zentriertes Overlay, Escape schließt, Enter navigiert.
+- **FR60:** Chef kann die **aktuelle Journal-Ansicht** (inklusive aktiver Facetten-Filter) als **CSV exportieren**, um externe Analysen in Excel o.ä. durchzuführen. Der Export respektiert den aktiven Filter-Stand.
+- **FR61:** Chef kann eine Facetten-Filter-Kombination als **benannten Query-Preset** speichern (z.B. "Satoshi Overrides Lost") und diese Presets über die Command Palette schnell aufrufen. Ein Star-Icon im Hero-Block triggert das Speichern.
+- **FR62:** Jede Journal-View mit aktiven Filtern produziert eine **bookmarkbare URL**, über die die exakte Filter-Kombination wiederhergestellt werden kann. Browser-Back funktioniert als natürliches State-Management. Die URL ist shareable (Copy-Paste an externe Analyst-Tools möglich).
+
+**Capability-Contract-Hinweis:** Diese 62 FRs (FR1–FR52 + FR53–FR58 + FR59–FR62) sind **bindend** für alle Downstream-Workflows (UX Design, Architektur, Epic Breakdown, Story Implementation). Features außerhalb dieser Liste werden im MVP nicht implementiert, außer sie werden explizit als Änderung dieses Kapitels dokumentiert. Die Descope-Ladder (siehe oben) definiert, welche FR-Cluster im Ernstfall zurückgefahren werden. FR59–FR62 haben Descope-Priorität 1 (als erste rauscuttbar bei Zeitdruck), da sie reine Power-User-Ergonomie sind und keine Kern-Funktionalität blockieren.
 
 ## Non-Functional Requirements
 

@@ -529,6 +529,10 @@ FR55: Epic 11 — Bracket-Order via ib_async (Limit + Trailing Stop-Loss, atomar
 FR56: Epic 11 — Order-Status-Tracking fuer Quick-Orders
 FR57: Epic 11 — Auto-Tagging bei Quick-Order (Strategie, Trigger, Horizon)
 FR58: Epic 11 — Transient vs Terminal Fehler-Unterscheidung mit Auto-Retry
+FR59: Epic 4 Story 4.6 — Command Palette (Ctrl+K) mit Fuzzy-Search
+FR60: Epic 4 Story 4.7 — CSV-Export der Journal-Ansicht
+FR61: Epic 4 Story 4.7 — Query-Presets (Star-Icon) und Command-Palette-Aufruf
+FR62: Epic 4 Story 4.1 — Bookmarkbare Filter-URLs via hx-push-url
 
 ## Epic List
 
