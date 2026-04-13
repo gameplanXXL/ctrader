@@ -1,6 +1,6 @@
 # Story 1.6: MCP-Client-Wrapper & Contract-Snapshot
 
-Status: review
+Status: done
 
 ## Story
 

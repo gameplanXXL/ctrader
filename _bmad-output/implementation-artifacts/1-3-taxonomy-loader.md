@@ -1,6 +1,6 @@
 # Story 1.3: Taxonomie-Loader (taxonomy.yaml)
 
-Status: review
+Status: done
 
 ## Story
 

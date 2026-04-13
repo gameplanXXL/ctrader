@@ -5,6 +5,7 @@ handshake from a browser without writing test code. Production builds
 never see this router.
 """
 
+import httpx
 from fastapi import APIRouter, HTTPException, Request
 
 router = APIRouter(prefix="/debug", tags=["debug"])
@@ -14,8 +15,11 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 async def debug_mcp_tools(request: Request):
     """Return the live `tools/list` response from the MCP server.
 
-    Honest behavior: if MCP is unavailable, returns a 503 with a clear
-    JSON body. Never crashes.
+    Honest behavior:
+    - If MCP was never available at startup → 503 with "configure URL".
+    - If MCP was available at startup but is now unreachable / broken
+      (server died, network blip, shutdown race) → 503 with the actual
+      error, NOT a 500 + traceback.
     """
 
     if not getattr(request.app.state, "mcp_available", False):
@@ -31,7 +35,20 @@ async def debug_mcp_tools(request: Request):
         )
 
     client = request.app.state.mcp_client
-    payload = await client.list_tools()
+    try:
+        payload = await client.list_tools()
+    except (httpx.HTTPError, RuntimeError) as exc:
+        # `RuntimeError` covers the lifespan-shutdown race where the
+        # injected httpx.AsyncClient was already aclose()d under us.
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "mcp_available": False,
+                "hint": "MCP was reachable at startup but is no longer responding.",
+                "error": str(exc),
+            },
+        ) from exc
+
     return {
         "mcp_available": True,
         "url": client.base_url,

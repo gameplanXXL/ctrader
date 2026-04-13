@@ -46,27 +46,50 @@ class Migration:
 
 
 def discover_migrations(migrations_dir: Path | None = None) -> list[Migration]:
-    """Return migrations in sorted order by version.
+    """Return migrations in numerically-sorted order by version.
 
-    Ignores files that don't match the `NNN_slug.sql` convention so that
-    README.md or down-migrations can live in the same folder without
-    breaking discovery.
+    - Ignores README.md and other non-`.sql` files silently.
+    - Logs a WARNING for `.sql` files that don't match the
+      `NNN_<slug>.sql` convention so a misnamed file (typo, wrong
+      separator) doesn't get silently dropped from the migration set.
+    - Raises ValueError on duplicate version numbers — two files with
+      the same `NNN_*` prefix would otherwise execute in undefined
+      order and only one would get tracked, silently corrupting the
+      `schema_migrations` table.
     """
 
     directory = migrations_dir or DEFAULT_MIGRATIONS_DIR
     if not directory.is_dir():
         raise FileNotFoundError(f"migrations directory not found: {directory}")
 
-    discovered: list[Migration] = []
+    discovered: dict[str, Migration] = {}
     for entry in sorted(directory.iterdir()):
         if not entry.is_file():
             continue
+        if entry.suffix != ".sql":
+            # Non-SQL file (README.md, .gitignore) — silently skip.
+            continue
         match = _MIGRATION_FILENAME_RE.match(entry.name)
         if not match:
+            # Typo or wrong separator — log loudly so the operator
+            # notices the file isn't being applied.
+            logger.warning(
+                "migrate.malformed_filename",
+                file=entry.name,
+                expected_pattern=_MIGRATION_FILENAME_RE.pattern,
+            )
             continue
-        discovered.append(Migration(version=match.group(1), path=entry))
+        version = match.group(1)
+        if version in discovered:
+            raise ValueError(
+                f"duplicate migration version {version!r}: "
+                f"{discovered[version].path.name} vs {entry.name}"
+            )
+        discovered[version] = Migration(version=version, path=entry)
 
-    return sorted(discovered, key=lambda m: m.version)
+    # Numeric sort, not lexicographic — otherwise `"1000" < "999"` and
+    # the 1000th migration would run before the 999th.
+    return sorted(discovered.values(), key=lambda m: int(m.version))
 
 
 async def _ensure_tracking_table(conn: asyncpg.Connection) -> None:

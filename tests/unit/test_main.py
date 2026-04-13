@@ -42,10 +42,18 @@ def test_healthz_endpoint_returns_200(client: TestClient) -> None:
     assert body["version"] == __version__
 
 
-def test_pool_is_attached_to_app_state(client: TestClient) -> None:
-    """AC #1: lifespan creates the (faked) asyncpg pool and hangs it on app.state."""
+def test_pool_is_attached_to_app_state(
+    client: TestClient,
+    _fake_db_pool: object,
+) -> None:
+    """AC #1: lifespan creates the (faked) asyncpg pool and hangs it on app.state.
 
-    # Accessing app.state inside the TestClient context proves the lifespan
-    # ran and create_pool was awaited.
-    assert hasattr(app.state, "db_pool")
-    assert app.state.db_pool is not None
+    The conftest fixture returns the exact AsyncMock the lifespan's
+    `create_pool()` will yield, so we can assert *identity* — not just
+    existence. A regression where the lifespan forgets to set
+    `app.state.db_pool` (or sets it to something else) will now fail
+    here, which the previous `is not None` check would have missed
+    since AsyncMock is always truthy (P15 fix).
+    """
+
+    assert app.state.db_pool is _fake_db_pool

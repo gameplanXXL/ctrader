@@ -1,6 +1,6 @@
 # Story 1.2: Migrations-Framework & Basis-Infrastruktur
 
-Status: review
+Status: done
 
 ## Story
 

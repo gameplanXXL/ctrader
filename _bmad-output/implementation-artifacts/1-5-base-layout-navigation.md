@@ -1,6 +1,6 @@
 # Story 1.5: Base-Layout, Top-Bar & Leere Seiten-Shells
 
-Status: review
+Status: done
 
 ## Story
 

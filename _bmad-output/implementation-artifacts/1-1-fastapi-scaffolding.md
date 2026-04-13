@@ -1,6 +1,6 @@
 # Story 1.1: FastAPI-Projekt-Scaffolding mit Docker Compose & PostgreSQL
 
-Status: review
+Status: done
 
 ## Story
 

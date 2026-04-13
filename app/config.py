@@ -44,6 +44,12 @@ class Settings(BaseSettings):
     # Logging (structlog JSON)
     # ------------------------------------------------------------------
     log_level: str = Field(default="INFO", description="structlog/stdlib log level")
+    # NOTE on default: deliberately a bare relative path. The actual
+    # absolute resolution happens in `app.logging.configure_logging`,
+    # which anchors relative paths to the project root (NOT cwd) so
+    # tests and `uv run` from arbitrary directories all land in the
+    # same `data/logs/`. Override with an absolute path in .env if you
+    # want a different location.
     log_file: str = Field(
         default="data/logs/ctrader.log",
         description="Log file path — rotated at 100MB, 5 backups (NFR-M4)",

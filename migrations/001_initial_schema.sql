@@ -53,8 +53,17 @@ EXCEPTION
 END $$;
 
 -- horizon_type: trading horizon classification
+-- IMPORTANT: must stay in sync with the `horizons` section of taxonomy.yaml
+-- (FR14 — taxonomy is the source of truth for trader-facing labels, this
+-- enum is the database-side mirror). Adding a new value? Add it both here
+-- AND in taxonomy.yaml in the same migration commit.
 DO $$ BEGIN
-    CREATE TYPE horizon_type AS ENUM ('intraday', 'swing', 'position');
+    CREATE TYPE horizon_type AS ENUM (
+        'intraday',
+        'swing_short',
+        'swing_long',
+        'position'
+    );
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;

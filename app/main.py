@@ -64,25 +64,41 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if applied:
         logger.info("app.migrations_applied", versions=applied)
 
-    app.state.db_pool = await create_pool()
-
-    # MCP handshake — best-effort, never blocks startup. Snapshot lands
-    # in data/mcp-snapshots/ on success. On failure mcp_available stays
-    # False and downstream code degrades gracefully (FR23).
-    if settings.mcp_fundamental_url:
-        mcp_available, mcp_client = await mcp_handshake(settings.mcp_fundamental_url)
-    else:
-        logger.info("app.mcp_disabled", reason="mcp_fundamental_url not configured")
-        mcp_available, mcp_client = False, None
-    app.state.mcp_available = mcp_available
-    app.state.mcp_client = mcp_client
+    # Default state so the `finally` block below can always introspect
+    # safely even if startup aborts mid-sequence (e.g., load_taxonomy
+    # raises). Without these defaults a partial-startup failure would
+    # mask the real exception with an AttributeError on app.state in
+    # the teardown.
+    app.state.db_pool = None
+    app.state.mcp_client = None
+    app.state.mcp_available = False
 
     try:
+        app.state.db_pool = await create_pool()
+
+        # MCP handshake — best-effort, never blocks startup. Snapshot
+        # lands in data/mcp-snapshots/ on success. On failure
+        # mcp_available stays False and downstream code degrades
+        # gracefully (FR23).
+        if settings.mcp_fundamental_url:
+            mcp_available, mcp_client = await mcp_handshake(settings.mcp_fundamental_url)
+        else:
+            logger.info("app.mcp_disabled", reason="mcp_fundamental_url not configured")
+            mcp_available, mcp_client = False, None
+        app.state.mcp_available = mcp_available
+        app.state.mcp_client = mcp_client
+
         yield
     finally:
-        if app.state.mcp_client is not None:
-            await app.state.mcp_client.aclose()
-        await close_pool(app.state.db_pool)
+        # Tear down in reverse order of construction. Each step is
+        # null-guarded because partial startup failure may leave any of
+        # them unset — we still want to close whatever DID succeed.
+        mcp_client = getattr(app.state, "mcp_client", None)
+        if mcp_client is not None:
+            await mcp_client.aclose()
+        db_pool = getattr(app.state, "db_pool", None)
+        if db_pool is not None:
+            await close_pool(db_pool)
         logger.info("app.shutdown")
 
 

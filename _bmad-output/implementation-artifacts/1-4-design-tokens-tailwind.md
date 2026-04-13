@@ -1,6 +1,6 @@
 # Story 1.4: Design-Tokens & Tailwind-CSS-Pipeline
 
-Status: review
+Status: done
 
 ## Story
 
