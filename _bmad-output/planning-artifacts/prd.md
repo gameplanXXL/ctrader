@@ -57,7 +57,7 @@ gapAnalysis:
   mvpAdditions:
     - FR13a MAE/MFE pro Trade
     - FR13b P&L-Kalender-Heatmap
-    - FR13c Screenshot-Attachment pro Trade
+    - FR13c Dynamischer OHLC-Chart mit Entry/Exit-Markern via lightweight-charts (ersetzt ursprünglich geplanten Screenshot-Upload)
     - FR18a Mistake-Tagging-Facette (orthogonal)
     - FR18b Top-N-Mistakes-Report mit $-Kosten-Aggregation
     - NFR-I6 Intraday-Daten-Integration für MAE/MFE
@@ -80,7 +80,7 @@ gapAnalysis:
       - Tradervue
     headlessAutoSyncFinding: Nur TradesViz bietet echten pull-basierten Auto-Sync (cTrader Open API OAuth + IB Flex Web Service). TraderSync Sync ist manuell ("not automatic" laut eigener Doku), Edgewonk nur Statement-CSV, Tradervue kein cTrader.
     decision: rejected
-    decisionReason: ctrader baut eigenes Journal als Teil des MVP. Die Tier-1-Gap-Analyse-Erkenntnisse (MAE/MFE, Calendar, Screenshot, Mistake-Tagging) sind bereits als FRs integriert. Der Bot-Differenzierer (Trigger-Provenance-Schema + AI-Agent-Approval mit Risk-Gate) ist in keinem der Tools verfügbar und bleibt der Kern-Wert.
+    decisionReason: ctrader baut eigenes Journal als Teil des MVP. Die Tier-1-Gap-Analyse-Erkenntnisse (MAE/MFE, Calendar, OHLC-Chart mit Markern, Mistake-Tagging) sind bereits als FRs integriert. Der Bot-Differenzierer (Trigger-Provenance-Schema + AI-Agent-Approval mit Risk-Gate) ist in keinem der Tools verfügbar und bleibt der Kern-Wert.
     referenceForPhase2: TradesViz als potenzielle optionale Export-Bridge dokumentiert, falls Phase 2 eine Journal-Integration will
 ---
 
@@ -88,7 +88,7 @@ gapAnalysis:
 
 **Author:** Chef
 **Date:** 2026-04-10
-**Last Updated:** 2026-04-12 (IB Quick-Order mit Trailing Stop-Loss als Scope-Erweiterung für Slice A aufgenommen)
+**Last Updated:** 2026-04-13 (Storage-Umstellung DuckDB → PostgreSQL vollständig eingearbeitet; FR13c von Screenshot-Upload auf dynamischen lightweight-charts-OHLC-Chart umgestellt)
 
 ## Executive Summary
 
@@ -116,7 +116,7 @@ Die folgende Klassifikation ordnet ctrader technisch und organisatorisch ein und
 
 - **Project Type:** Web Application (server-rendered, single-user, lokal betrieben)
 - **Frontend-Stack:** FastAPI + HTMX + Tailwind (Python-only, kein Node-Toolchain)
-- **Storage:** DuckDB (embedded, zero-ops)
+- **Storage:** PostgreSQL (bestehende Instanz, Chef betreibt bereits mehrere — Concurrent-Write-Sicherheit für automatisiertes Daytrading mit ~10 Trades/Tag, vorhandene Ops-Erfahrung)
 - **Domain:** Fintech / Retail Trading Platform (personal, non-regulated — Steuerreporting erfolgt direkt über die Broker, keine Compliance-Schicht in der Software)
 - **Complexity:** Medium-High — technisch anspruchsvoll durch MCP-Contract zu `fundamental`, zwei Broker-API-Integrationen (`ib_async` + OpenApiPy), Trigger-Provenance-Schema, und human-in-the-loop AI-Agent-Approval-Pipeline. Keine regulatorische Komplexität.
 - **Project Context:** Greenfield — dritter Anlauf nach zwei archivierten Vorversuchen (`/home/cneise/Project/ALT/ctrader`, `/home/cneise/Project/ALT/ctrader2`), frischer Bootstrap mit expliziter Descope-Ladder und terminalem Abbruch-Kriterium Ende Woche 4.
@@ -149,7 +149,7 @@ Da ctrader ein Single-User-Produkt ist, ersetzt "Business Success" hier das, was
 - **MCP-Contract Stabilität:** Der zu Beginn von Woche 0 eingefrorene `fundamental`-MCP-Contract wird über die 8 Wochen versioniert. Breakage des Contracts muss durch einen expliziten Test erkannt werden, nicht durch einen Journal-Fehler im Trade-Review.
 - **Wöchentlicher Gordon-Trend-Loop:** Jeden Montagmorgen liegt ein aktualisierter Gordon-Diff mit HOT-Liste und Delta zur Vorwoche vor. Cron-basiert, ohne manuellen Anstoß.
 - **Regime-Snapshot & Kill-Switch:** Täglicher Snapshot von Fear & Greed + VIX + Per-Broker-P&L läuft ohne Ausfall. Kill-Switch triggert bei Fear & Greed < 20 eine Pause der Bot-Execution für Strategien mit Horizon ∈ {intraday, swing<5d}. Swing- und Position-Strategien mit längerem Horizont pausieren nicht automatisch (horizon-bewusster Kill-Switch).
-- **Zero-Ops-DB:** DuckDB läuft lokal ohne Server, ohne Migrations-Pipeline jenseits der eigenen versionierten Migrations-Skripte. Jede Schema-Änderung ist eine Migration in Git (siehe CLAUDE.md).
+- **Low-Ops-DB:** PostgreSQL läuft auf einer von Chef bereits betriebenen Instanz — keine neue Infrastruktur. Concurrent-Write-sicher (wichtig für automatisiertes Daytrading mit parallelem Live-Sync, Scheduled Jobs und potentiellen Bot-Trades). Jede Schema-Änderung ist eine idempotente Migration in Git (siehe CLAUDE.md).
 - **Audit-Log für Approvals:** Jede Bot-Approval wird in einem unveränderlichen Audit-Log festgehalten (wer, wann, welches Risikobudget, welche Risk-Gate-Ergebnisse, welche Strategie-Version). Nicht aus Compliance-Gründen, sondern als Teil des Trigger-Provenance-Versprechens.
 
 ### Measurable Outcomes
@@ -174,8 +174,8 @@ Zusammengefasst die **fünf Zahlen**, an denen Ende Woche 8 Erfolg oder Misserfo
 
 **Slice A (Wochen 0–4): Journal + IB + `fundamental`** — das erste zeigbare Artefakt.
 
-- Woche 0 (<1 Tag Vorarbeit): `fundamental`-MCP-Contract ziehen und einfrieren. Handshake-Test. DuckDB + FastAPI-Skelett. "Hello World"-Seite, die einen MCP-Call rendert.
-- Woche 1–2: IB Flex Query Import, DuckDB-Schema mit `trade`-Tabelle (inkl. `horizon`, `agent_id`, `trigger_spec` JSONB), `taxonomy.yaml` extrahiert, statische Journal-Seite aller historischen Trades.
+- Woche 0 (<1 Tag Vorarbeit): `fundamental`-MCP-Contract ziehen und einfrieren. Handshake-Test. PostgreSQL-Connection + FastAPI-Skelett + erste Migration (`schema_migrations`-Meta-Tabelle). "Hello World"-Seite, die einen MCP-Call rendert.
+- Woche 1–2: IB Flex Query Import, PostgreSQL-Schema mit `trade`-Tabelle (inkl. `horizon`, `agent_id`, `trigger_spec` JSONB), `taxonomy.yaml` extrahiert, statische Journal-Seite aller historischen Trades.
 - Woche 3: Live IB Sync via `ib_async`, Facettenfilter-UI, Post-hoc-Tagging-UI für manuelle Trades, **IB Quick-Order mit Trailing Stop-Loss** (Aktien-only, Bracket Order via `ib_async`, UI direkt aus Journal/Watchlist).
 - Woche 4: Viktor/Satoshi-Integration in die Journal-Drilldown-Ansicht — zeige für jeden Trade die damalige/aktuelle Fundamental-Einschätzung side-by-side.
 - **Ende Woche 4: Vollständig benutzbares Journal. Wenn hier nichts Shippbares steht, stopp und descope (siehe Ladder).**
@@ -222,7 +222,7 @@ Zusammengefasst die **fünf Zahlen**, an denen Ende Woche 8 Erfolg oder Misserfo
 - **Monte-Carlo Performance-Simulator:** Random-Resampling der Trade-Historie zur Projektion von Equity-Curve-Szenarien. Sinnvoll ab N ≥ 100 Trades.
 
 **Review- und UX-Features aus etablierten Journal-Tools:**
-- **Chart-Playback mit Entry/Exit-Markern:** Intraday-Chart des Assets während des Trade-Zeitraums mit visuellen Markern für Entry und Exit. Implementierung via `lightweight-charts`-Widget (lokales JS-File, kein Node-Build). Brückt die visuelle Review-Lücke für Daytrading-Trades.
+- **Chart-Erweiterungen (aufbauend auf FR13c):** Technische Indikatoren-Overlays (EMA, RSI, Volume), Multi-Timeframe-Umschalter, Drawing-Tools (Trendlinien, Fibonacci) auf dem bereits existierenden lightweight-charts-Chart. Der Basis-Chart mit Entry/Exit-Markern ist bereits im MVP enthalten.
 - **Playbook / Pre-Trade-Checklist für Strategien:** Erweiterung des Strategy-Templates um eine abhakbare Regelliste pro Strategie. Bei manueller Trade-Ausführung macht Chef die Checkliste, bei Bot-Trades erzwingt der Agent die Regeln technisch.
 - **Tiltmeter / Emotions-Score pro Trade:** Edgewonks Signatur-Feature — numerischer Emotions-Score pro Trade, korreliert mit P&L. Schlanker Einstieg über Mistake-Tagging (FR18a im MVP), volle Tiltmeter-Tiefe in Phase 2.
 
@@ -251,7 +251,7 @@ Alle Journeys haben denselben User — Chef. Was variiert, ist der **Modus**, in
 
 **Ablauf:**
 1. **Trade-Ausführung außerhalb ctrader.** Chef handelt in TWS, bewusst ohne `orderRef`-Tagging — er denkt im Moment des Trades nicht an ctrader.
-2. **Automatischer Sync.** Die IB-Flex-Query-Nightly-Reconciliation oder der Live-`ib_async`-Stream zieht den Trade binnen 5 Minuten (live) bzw. über Nacht (historisch) in die DuckDB. Der Trade erscheint im Journal mit Status `untagged`.
+2. **Automatischer Sync.** Die IB-Flex-Query-Nightly-Reconciliation oder der Live-`ib_async`-Stream zieht den Trade binnen 5 Minuten (live) bzw. über Nacht (historisch) in PostgreSQL. Der Trade erscheint im Journal mit Status `untagged`.
 3. **Journal-Einstieg.** Chef öffnet am nächsten Morgen das Journal. Auf der Startseite sieht er einen "Untagged Trades"-Abschnitt mit einer Zählung.
 4. **Drilldown.** Ein Klick auf den Trade öffnet die Detailansicht: P&L, Zeitfenster, Asset-Kontext, die damalige Fundamental-Einschätzung aus Viktor (für Aktien), der Gordon-Trend-Kontext, und ein **Tagging-Formular**.
 5. **Tagging.** Chef wählt: Strategie (Dropdown aus `taxonomy.yaml` oder "ad-hoc"), Trigger-Typ, Horizon (intraday/swing/position), Exit-Grund, optional Notizen-Freitext. Ein Klick speichert und setzt den Status auf `tagged`.
@@ -261,7 +261,7 @@ Alle Journeys haben denselben User — Chef. Was variiert, ist der **Modus**, in
 
 **Requirements, die diese Journey freisetzt:**
 - IB Flex Query Import + Live Sync via `ib_async` (Slice A, Woche 1–3)
-- DuckDB-Trade-Schema mit `status`, `horizon`, `strategy_id`, `trigger_spec`
+- PostgreSQL-Trade-Schema mit `status`, `horizon`, `strategy_id`, `trigger_spec`
 - "Untagged Trades"-Widget auf der Journal-Startseite
 - Trade-Drilldown-View mit eingebundenem MCP-Call für Viktor/Gordon-Kontext
 - Post-hoc-Tagging-Formular mit Taxonomie-Dropdowns
@@ -338,9 +338,9 @@ Alle Journeys haben denselben User — Chef. Was variiert, ist der **Modus**, in
 
 **Requirements, die diese Journey freisetzt:**
 - Facettenfilter-Komponente (HTMX, server-side) auf der Journal-Seite
-- Aggregations-Query pro Facetten-Kombi (DuckDB-Aggregation live)
+- Aggregations-Query pro Facetten-Kombi (PostgreSQL-Aggregation live)
 - Vollständige Trigger-Taxonomie in `taxonomy.yaml`
-- JSONB-Query-Unterstützung in DuckDB für `trigger_spec`-Facetten
+- JSONB-Query-Unterstützung in PostgreSQL für `trigger_spec`-Facetten (GIN-Index auf `trigger_spec` für schnelle Facetten-Queries)
 
 ### Journey 5 — Montagmorgen-Gordon-Diff + Regime-Reaktion
 
@@ -454,7 +454,7 @@ Der `fundamental`-MCP-Server ist die **einzige externe harte Dependency** und br
 
 Trading-Metriken müssen **deterministisch** sein — dieselben Inputs müssen immer dasselbe R-Multiple, dieselbe Expectancy, dasselbe P&L ergeben, unabhängig von Query-Zeitpunkt oder Recompute-Order.
 
-- **Zeit-Handling:** Alle Zeitstempel in DuckDB als UTC; Exchange-TZ (z.B. US/Eastern für IB, UTC für cTrader-Crypto) wird bei der Anzeige konvertiert, nie in der DB gespeichert.
+- **Zeit-Handling:** Alle Zeitstempel in PostgreSQL als `TIMESTAMPTZ` (UTC); Exchange-TZ (z.B. US/Eastern für IB, UTC für cTrader-Crypto) wird bei der Anzeige konvertiert, nie in der DB gespeichert.
 - **P&L-Berechnung:** Gebühren werden *inklusive* Funding-Rates für CFDs gespeichert und in die P&L-Berechnung einbezogen. Keine "Netto vs. Brutto"-Ambiguität — das Journal zeigt eine Wahrheit.
 - **R-Multiple & Expectancy:** Formeln sind zentral und getestet definiert (nicht in der View-Layer verteilt). Ein Trade ohne Stop-Loss bekommt R-Multiple `NULL`, nicht "0" — damit Aggregationen sauber zwischen "kein R verfügbar" und "R = 0" unterscheiden.
 - **Gap-Handling in historischen Candles:** Fehlende Candles (Handelsfrei-Tage, Exchange-Ausfälle) werden explizit als Gap markiert, nicht interpoliert. Die Entscheidung, wie damit im Review-UI umgegangen wird, ist Teil der Spezifikation (kein stilles Interpolieren).
@@ -481,7 +481,7 @@ Was in einem realen Trading-System kaputtgehen kann und wie ctrader damit umgeht
 | Clock-Drift zwischen ctrader, Broker und MCP | Trades bekommen falsche Zeitstempel, Aggregationen werden ungenau | NTP-Zeit am Host als Voraussetzung dokumentiert; Broker-Zeitstempel aus der Broker-Antwort übernommen, nicht lokal generiert |
 | Duplikat-Detection bei IB-Re-Sync | Trade doppelt im Journal, Expectancy verzerrt | Composite-Key (permId für IB, eigene ID für cTrader) als Unique-Constraint; Duplikat-Erkennung vor Insert |
 | Regime-Kill-Switch feuert fälschlich (Datenquellen-Spike) | Legitime Strategien werden pausiert | Kill-Switch-Trigger loggt explizit den Datenquellen-Stand; Chef sieht "ausgelöst weil F&G = 18 um 14:23"; manuelle Reaktivierung mit Audit-Log-Eintrag möglich |
-| DuckDB-Datei-Korruption | Journal-Datenverlust | Tägliches Backup via `COPY TO`-Export in ein separates Verzeichnis; Recovery-Prozedur dokumentiert |
+| PostgreSQL-Ausfall oder Datenkorruption | Journal-Datenverlust | Tägliches Backup via `pg_dump` in ein separates Verzeichnis; Recovery-Prozedur dokumentiert; PostgreSQL-Instanz ist von Chef bereits Ops-erprobt |
 | `fundamental`-Contract ändert sich unbemerkt | Trade-Drilldown zeigt plötzlich leere/falsche Fundamental-Einschätzung | Contract-Test täglich gegen MCP-Snapshot; Test-Failure blockiert keine Trades, aber erzeugt UI-Warnung |
 | Chef vergisst Post-hoc-Tagging mehrerer Tage | Untagged-Trades akkumulieren, Strategie-Aggregationen unvollständig | "Untagged"-Counter prominent auf Journal-Startseite; keine automatische Alarmierung (das ist Ermessen, nicht Compliance) |
 
@@ -544,7 +544,8 @@ Dieser Abschnitt konsolidiert technische Entscheidungen für ctrader. Locked Dec
 - **Dependency-Manager:** `uv` (siehe `CLAUDE.md`)
 - **Web-Framework:** FastAPI
 - **Frontend:** HTMX + Tailwind + Alpine.js *nur wo wirklich nötig* — kein Node, kein React, kein eigener Build-Step
-- **Storage:** DuckDB (embedded, zero-ops)
+- **Storage:** PostgreSQL (bestehende Instanz, Chef-betrieben — Entscheidung am 2026-04-12 von DuckDB geändert; Gründe: Concurrent-Write-Sicherheit für automatisiertes Daytrading ~10 Trades/Tag, vorhandene Ops-Erfahrung, keine zusätzliche DB-Infrastruktur)
+- **Chart-Rendering:** lightweight-charts (TradingView Open-Source, Apache 2.0, ~35KB) — dynamische OHLC-Charts mit Entry/Exit-Markern und Indikatoren im Trade-Drilldown, lokal gehostetes JS-File, kein Node-Build
 - **IB-Integration:** `ib_async` + Flex Queries
 - **cTrader-Integration:** OpenApiPy (Protobuf)
 - **MCP-Client:** gegen lokalen `fundamental`-Sidecar
@@ -590,7 +591,7 @@ FastAPI hat keinen eingebauten Scheduler. Die Journey 5 (Gordon-Diff Montagmorge
   - Täglich 00:30 UTC: Regime-Snapshot (Fear & Greed + VIX + Per-Broker-P&L)
   - Montag 06:00 UTC: Gordon-Trend-Radar holen und Diff gegen Vorwoche berechnen
   - Täglich 03:00 UTC: MCP-Contract-Test gegen eingefrorenen Snapshot
-  - Täglich 04:00 UTC: DuckDB-Backup via `COPY TO` in separates Verzeichnis
+  - Täglich 04:00 UTC: PostgreSQL-Backup via `pg_dump` in separates Verzeichnis
 
 ### Observability (Minimal)
 
@@ -605,14 +606,14 @@ Kein Grafana, kein Prometheus, kein SaaS-Error-Tracker im MVP. Was stattdessen d
 
 - **Lokaler Run:** `uv run uvicorn app.main:app --host 127.0.0.1 --port 8000` als Primär-Kommando. Eventuell mit `--reload` in Dev-Mode.
 - **Hintergrund-Betrieb:** Für den Dauerbetrieb `systemd --user` Unit oder `tmux`/`screen`-Session. Der Entscheid wird im Architektur-Workflow getroffen, hier ist die PRD-Anforderung: **ctrader muss als Dauer-Prozess laufen können, damit Live-Sync und Scheduled Jobs zuverlässig funktionieren.**
-- **DB-Schonung:** DuckDB-Datei liegt im Project-Root (nicht in `/tmp`). Write-Path ist single-process (FastAPI + APScheduler im selben Prozess); keine externen Writer.
+- **DB-Verbindung:** PostgreSQL läuft auf der bestehenden Chef-Instanz; ctrader verbindet sich über einen dedizierten User mit eigener Datenbank/Schema. Write-Path ist multi-process-fähig (FastAPI-Requests, APScheduler-Jobs, Live-Sync-Loop) — PostgreSQL's Concurrent-Write-Sicherheit ersetzt die bisher angenommene Single-Writer-Beschränkung und macht parallele Order-Platzierung sauber möglich.
 - **Logs-Zugriff:** Log-Datei ist über `tail -f` erreichbar; UI zeigt die letzten N Log-Einträge für kritische Ereignisse (Job-Failures, Risk-Gate-Fehler).
 
 ### Test-Strategie (realistisch für 8 Wochen)
 
 - **Pyramide:**
   1. **Unit-Tests** für reine Business-Logik: P&L-Berechnung, R-Multiple, Expectancy, Trigger-Spec-Parser, Facetten-Filter-Aggregation. **Hoher Wert, niedriger Aufwand** — das kritischste.
-  2. **Integration-Tests** für die DB-Schicht (DuckDB-Migrations, Trade-Reconciliation-Idempotenz, Audit-Log-Append-Only).
+  2. **Integration-Tests** für die DB-Schicht (PostgreSQL-Migrations, Trade-Reconciliation-Idempotenz, Audit-Log-Append-Only). Tests laufen gegen eine per `testcontainers` oder lokalem Test-User gestartete PostgreSQL-Instanz — nicht gegen die Produktions-DB.
   3. **Contract-Tests** gegen `fundamental`-MCP (tägliches Kanarienvogel-Test gegen eingefrorenen Snapshot, siehe Domain-Requirements).
   4. **Broker-Integration-Tests:** Gegen IB Paper-Account und cTrader Demo. Nicht als CI-Test (externe Abhängigkeit), sondern als manuell triggerbares Spike-Skript. Im MVP kein Vollautomat.
   5. **Keine E2E-Browser-Tests** im MVP (Playwright, Selenium) — nicht nötig für Single-User, wäre Zeitverbrennung.
@@ -621,15 +622,16 @@ Kein Grafana, kein Prometheus, kein SaaS-Error-Tracker im MVP. Was stattdessen d
 
 ### Migrations-Disziplin
 
-`CLAUDE.md` sagt: *"Alle DuckDB-Schema-Änderungen MÜSSEN über versionierte Migrations-Skripte erfolgen. Direkte Schema-Änderungen sind verboten."* Dieser PRD formalisiert das:
+`CLAUDE.md` sagt: *"Alle PostgreSQL-Schema-Änderungen MÜSSEN über versionierte Migrations-Skripte erfolgen. Direkte Schema-Änderungen sind verboten."* Dieser PRD formalisiert das:
 
 - **Verzeichnis:** `migrations/` im Project-Root
 - **Nummerierung:** Nullpad-Sequential: `001_initial_schema.sql`, `002_add_horizon.sql`, …
-- **Runner:** Ein minimales Python-Skript in `app/db/migrate.py`, das nicht-angewendete Migrationen in aufsteigender Reihenfolge ausführt. Tracking in einer `schema_migrations`-Meta-Tabelle. Kein Alembic, kein Flyway — Overhead für DuckDB nicht gerechtfertigt.
-- **Idempotenz:** Jede Migration muss bei wiederholter Ausführung sicher sein (Schutz vor Doppel-Apply).
+- **Runner:** Ein minimales Python-Skript in `app/db/migrate.py`, das nicht-angewendete Migrationen in aufsteigender Reihenfolge innerhalb einer Transaktion ausführt. Tracking in einer `schema_migrations`-Meta-Tabelle. Kein Alembic, kein Flyway — der Overhead lohnt sich für ein Single-User-Projekt nicht, PostgreSQL's transaktionales DDL macht den eigenen Runner sicher genug.
+- **Idempotenz:** Jede Migration muss bei wiederholter Ausführung sicher sein (`IF NOT EXISTS`-Clauses, `ON CONFLICT`-Guards).
+- **Transaktionalität:** Jede Migration läuft in einer eigenen Transaktion; PostgreSQL's transaktionales DDL rollt bei Fehler automatisch zurück.
 - **Reversibilität:** Wo sinnvoll, eine `.down.sql`-Datei neben der `.up.sql`. Bei destruktiven Änderungen (DROP) darf `.down` fehlen, mit Kommentar warum.
 - **Seed-Daten:** `taxonomy.yaml` wird in Migration `002` oder vergleichbar in die DB geladen. Weitere Seeds nach Bedarf.
-- **Kein ORM-Mapping:** DuckDB wird über SQL und `duckdb-python` direkt angesprochen. Kein SQLAlchemy, kein ORM — Trade-Schema ist stabil genug, dass ein ORM Overhead wäre.
+- **DB-Client:** `psycopg` (v3) als Standard-Client — modern, async-fähig, pragmatisch. **Kein ORM** (kein SQLAlchemy): Trade-Schema ist stabil genug, dass ein ORM Overhead wäre, und die JSONB-Query-Logik für `trigger_spec`-Facetten liest sich in rohem SQL ohnehin direkter.
 
 ### Dev-Tooling
 
@@ -721,7 +723,7 @@ Aus den Operational Risks (Domain-Requirements) + Resource Risks (oben) priorisi
 | 3 | Scheduled Job falllt still aus | UI zeigt veralteten "Zuletzt erfolgreich"-Timestamp | UI-Widget mit Health-Status prominent platzieren |
 | 4 | Chef's verfügbare Zeit unter Annahme | Freitag-Check zeigt "Artefakt nicht fertig" | Descope-Ladder-Stufe sofort ziehen |
 | 5 | cTrader-Rate-Limits härter als erwartet | OpenApiPy-Errors im Log | Rate-Limit-Sleep + Descope-Stufe 2 (Read-Only) |
-| 6 | DuckDB-Datei-Korruption | Backup-Recovery nötig | Tägliches Backup + dokumentierte Recovery-Prozedur |
+| 6 | PostgreSQL-Ausfall oder Datenkorruption | Backup-Recovery nötig | Tägliches `pg_dump`-Backup + dokumentierte Recovery-Prozedur |
 | 7 | Regime-Kill-Switch fälschlich ausgelöst | Legitime Strategien pausieren | Manuelle Override + Audit-Log-Eintrag |
 | 8 | Post-hoc-Tagging wird vergessen | "Untagged"-Zähler steigt | Prominente UI-Anzeige; kein Alarm, Ermessen |
 | 9 | IB-Quick-Order-Doppelausführung bei TWS-Reconnect | Zwei identische Positionen bei IB | `orderRef`-basierte Idempotenz (NFR-R3a); Bracket-Order mit `transmit=False`/`True`-Pattern |
@@ -752,7 +754,7 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 - **FR13:** Chef kann für jede Facetten-Kombination eine Aggregation abrufen (Anzahl Trades, Expectancy, Winrate, R-Multiple-Verteilung).
 - **FR13a:** Chef sieht für jeden Trade **MAE (Maximum Adverse Excursion)** und **MFE (Maximum Favorable Excursion)** — jeweils in Preis-Einheiten und in Position-Dollar-Einheiten. Basis sind Intraday-Candle-Daten für den Trade-Zeitraum (Quelle: Architektur-Entscheidung, IB-Historical oder `fundamental/price`-MCP).
 - **FR13b:** Chef sieht einen **P&L-Kalender-View** (Monatsraster, jede Zelle ein Handelstag, Farbe nach Tages-P&L); ein Klick auf eine Zelle öffnet die Liste aller Trades dieses Tages.
-- **FR13c:** Chef kann für jeden Trade **einen Screenshot** (z.B. vom Chart zum Entry-Zeitpunkt) hochladen; das System speichert die Datei im lokalen Filesystem und verknüpft sie per Pfad-Referenz mit dem Trade. Die Datei ist im Trade-Drilldown sichtbar.
+- **FR13c:** Chef sieht im Trade-Drilldown einen **dynamischen OHLC-Chart** des gehandelten Assets für den Trade-Zeitraum, gerendert mit **lightweight-charts** (TradingView Open-Source, Apache 2.0, ~35KB, lokal gehostetes JS-File — kein Node-Build). Der Chart zeigt **Entry-Marker** und **Exit-Marker** als visuelle Annotationen auf der Kerzengrafik und nutzt die gleiche Intraday-Candle-Datenquelle wie FR13a (MAE/MFE). Granularität richtet sich nach Trade-Horizont (z.B. 1m/5m für Intraday, 1h/1d für Swing/Position). Der Chart ersetzt den im Vorversuch angedachten Screenshot-Upload vollständig — kein manuelles Anhängen von Bildern mehr, sondern reproduzierbare, zoom- und pan-fähige Charts direkt aus den Market-Daten.
 
 ### 3. Taxonomy & Trigger-Provenance
 
@@ -808,10 +810,10 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 
 ### 8. Operations, Health & Data Integrity
 
-- **FR49:** Das System führt Scheduled Jobs (IB Flex Nightly, Regime-Snapshot, Gordon-Weekly, MCP-Contract-Test, DuckDB-Backup) zu definierten Zeiten aus und loggt jede Ausführung mit Status.
+- **FR49:** Das System führt Scheduled Jobs (IB Flex Nightly, Regime-Snapshot, Gordon-Weekly, MCP-Contract-Test, PostgreSQL-Backup) zu definierten Zeiten aus und loggt jede Ausführung mit Status.
 - **FR50:** Chef sieht einen Health-Widget mit Broker-Verbindungsstatus (IB und cTrader), MCP-Status, Zeitstempel der letzten erfolgreichen Job-Ausführungen, und dem aktuellen Contract-Test-Ergebnis.
-- **FR51:** Das System führt alle DuckDB-Schema-Änderungen ausschließlich über versionierte, idempotente Migrations-Skripte aus (`migrations/001_*.sql`, etc.) mit Tracking in einer `schema_migrations`-Meta-Tabelle.
-- **FR52:** Das System erstellt tägliche DuckDB-Backups via `COPY TO` in ein separates Verzeichnis; die Recovery-Prozedur ist im Project-Knowledge dokumentiert.
+- **FR51:** Das System führt alle PostgreSQL-Schema-Änderungen ausschließlich über versionierte, idempotente Migrations-Skripte aus (`migrations/001_*.sql`, etc.) mit Tracking in einer `schema_migrations`-Meta-Tabelle. Jede Migration läuft in einer eigenen Transaktion.
+- **FR52:** Das System erstellt tägliche PostgreSQL-Backups via `pg_dump` in ein separates Verzeichnis; die Recovery-Prozedur (inkl. `pg_restore`) ist im Project-Knowledge dokumentiert.
 
 ### 9. IB Quick-Order (Aktien mit Trailing Stop-Loss)
 
@@ -863,7 +865,7 @@ Security ist für ctrader **Localhost-First + Defense-in-Depth-Minimal**. Die Be
 - **NFR-S2:** FastAPI bindet ausschließlich an `127.0.0.1`. Kein Binding auf `0.0.0.0` im MVP. Jede Abweichung erfordert eine explizite PRD-Änderung.
 - **NFR-S3:** Der Audit-Log für Approvals ist **technisch append-only**: Update- und Delete-Operationen auf der `approval_audit_log`-Tabelle werden per DB-Constraint oder Anwendungs-Layer unterbunden. Testbar über einen Negative-Test im Test-Suite.
 - **NFR-S4:** Keine Telemetrie, kein externes Error-Tracking (Sentry, DataDog) im MVP. Alle Logs bleiben lokal.
-- **NFR-S5:** Die DuckDB-Datei und das Backup-Verzeichnis haben restriktive Filesystem-Permissions (`0600` für Files, `0700` für Verzeichnisse), damit andere Nutzer des Host-Systems nicht lesen können.
+- **NFR-S5:** Die PostgreSQL-Instanz authentifiziert ctrader über einen dedizierten DB-User mit Least-Privilege-Rechten (nur Zugriff auf die eigene ctrader-Datenbank, keine SUPERUSER-Rechte). Credentials liegen in `.env`. Das `pg_dump`-Backup-Verzeichnis hat restriktive Filesystem-Permissions (`0600` für Files, `0700` für Verzeichnisse), damit andere Nutzer des Host-Systems die Backups nicht lesen können.
 
 ### Reliability & Data Integrity
 
@@ -875,7 +877,7 @@ Reliability ist das wichtigste NFR-Kapitel für ctrader, weil Trade-Daten-Verlus
 - **NFR-R3a:** IB-Quick-Orders (FR55) sind idempotent: Die `orderRef` (Client-Order-ID) ist der Idempotenz-Key. Ein Retry nach TWS-Reconnect oder Netzausfall darf keinen Doppel-Trade erzeugen. Testbar durch Replay des `placeOrder`-Calls mit identischer `orderRef`.
 - **NFR-R3b:** Die Quick-Order-Bestätigungs-UI (FR54) zeigt **alle entscheidungsrelevanten Zahlen** (Symbol, Seite, Menge, Limit, Trailing-Stop-Betrag, initiales Stop-Level, geschätztes Risiko in $) **ohne Scrollen in einem Viewport**. Kein zweiter Dialog, kein versteckter Parameter.
 - **NFR-R4:** Der MCP-Contract-Test (FR24) läuft täglich erfolgreich. Bei Abweichung erscheint ein UI-Warnbanner binnen 24 Stunden nach Drift, der Trade-Flow ist nicht blockiert.
-- **NFR-R5:** Tägliche DuckDB-Backups (FR52) schreiben erfolgreich in das Backup-Verzeichnis mit einem Alter ≤ 24 Stunden. Der Health-Widget (FR50) zeigt den Zeitstempel des letzten erfolgreichen Backups sichtbar.
+- **NFR-R5:** Tägliche `pg_dump`-Backups (FR52) schreiben erfolgreich in das Backup-Verzeichnis mit einem Alter ≤ 24 Stunden. Der Health-Widget (FR50) zeigt den Zeitstempel des letzten erfolgreichen Backups sichtbar. Die Recovery-Prozedur (`pg_restore` auf eine Test-DB) ist dokumentiert und wurde mindestens einmal während der 8 Wochen tatsächlich durchgespielt.
 - **NFR-R6:** Graceful Degradation bei MCP-Outage: Die Journal-, Strategy- und Regime-Views bleiben funktional, Fundamental-Einschätzungen zeigen einen klaren "Nicht verfügbar"-Zustand (FR23). Der Approval-Flow ist entsprechend behandelt — bei MCP-Timeout vor Risk-Gate wird das Proposal in einen expliziten "Risk-Gate nicht erreichbar, Approval blockiert"-Zustand gesetzt (siehe Operational Risks Tabelle).
 - **NFR-R7:** Schema-Änderungen laufen ausschließlich über versionierte, idempotente Migrations (FR51). Ein Test verifiziert, dass alle Migrations in `migrations/` zweimal angewandt dasselbe DB-State erzeugen wie einmal.
 - **NFR-R8:** Das Audit-Log enthält für jede Approval einen vollständigen Snapshot (Risk-Gate-Response, Fundamental-Response, Strategie-Version). Ein Test-Case verifiziert, dass aus dem Log allein eine historische Approval-Entscheidung reproduzierbar ist, auch wenn Rita/Cassandra ihre Meinung zwischenzeitlich geändert haben.
