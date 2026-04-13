@@ -12,8 +12,12 @@
 #}
 {% from "components/facet_chip.html" import facet_chip %}
 
-{% macro facet_bar(facet_selections, base_url="/journal", has_any_filter=false, reset_href="/journal") %}
-<div class="facet-bar" role="toolbar" aria-label="Facettenfilter">
+{# `build_facet_href` is passed through as an explicit macro argument
+   (code-review H1): previously it was injected via
+   `templates.env.globals`, which is a module-level dict and raced
+   under concurrent HTMX requests. #}
+{% macro facet_bar(facet_selections, build_facet_href, base_url="/journal", has_any_filter=false, reset_href="/journal") %}
+<div class="facet-bar" role="toolbar" aria-label="Facettenfilter" data-facet-bar="1">
   {% for facet in facet_selections %}
     {% if facet.available and facet.values %}
       <div class="facet-bar__group" data-facet="{{ facet.name }}">
@@ -105,4 +109,79 @@
     border-color: var(--accent);
   }
 </style>
+
+<script>
+  {# Code-review M2 — UX-DR13: arrow-key navigation inside the facet
+     toolbar. Left/Right moves focus through the facet chips; Home/End
+     jumps to the first/last chip. Scoped to the data-facet-bar element
+     so it doesn't interfere with other focus handling. #}
+  (function () {
+    var bar = document.querySelector('[data-facet-bar="1"]');
+    if (!bar || bar.dataset.keyboardWired === '1') return;
+    bar.dataset.keyboardWired = '1';
+    bar.addEventListener('keydown', function (evt) {
+      var target = evt.target;
+      if (!target.classList || !target.classList.contains('facet-chip')) return;
+      var chips = Array.prototype.slice.call(bar.querySelectorAll('.facet-chip'));
+      var idx = chips.indexOf(target);
+      if (idx < 0) return;
+      var next = null;
+      if (evt.key === 'ArrowRight' || evt.key === 'ArrowDown') {
+        next = chips[Math.min(idx + 1, chips.length - 1)];
+      } else if (evt.key === 'ArrowLeft' || evt.key === 'ArrowUp') {
+        next = chips[Math.max(idx - 1, 0)];
+      } else if (evt.key === 'Home') {
+        next = chips[0];
+      } else if (evt.key === 'End') {
+        next = chips[chips.length - 1];
+      }
+      if (next && next !== target) {
+        evt.preventDefault();
+        next.focus();
+      }
+    });
+
+    {# M1 / UX-DR38: shift+click multi-select. Intercept the click
+       before HTMX processes it and rewrite the href to keep the
+       current value in the URL alongside the new one. The server-side
+       `_facet_href_builder` toggles, so shift+click flips the toggle
+       semantics: instead of "replace selection", we "append to
+       selection" (or remove if already present). #}
+    bar.addEventListener('click', function (evt) {
+      if (!evt.shiftKey) return;
+      var chip = evt.target.closest('.facet-chip');
+      if (!chip) return;
+      evt.preventDefault();
+      evt.stopImmediatePropagation();
+      var href = chip.getAttribute('href') || chip.getAttribute('hx-get');
+      if (!href) return;
+      // Parse the target href, merge with current URL params.
+      var targetUrl = new URL(href, window.location.origin);
+      var nextParams = new URLSearchParams(window.location.search);
+      targetUrl.searchParams.forEach(function (value, key) {
+        // If the key already has this exact value in the current URL,
+        // the builder was removing it — mirror that behavior.
+        var existing = nextParams.getAll(key);
+        if (existing.includes(value)) return; // keep as-is
+        nextParams.append(key, value);
+      });
+      // Remove duplicates while preserving insertion order.
+      var seen = new Set();
+      var merged = new URLSearchParams();
+      nextParams.forEach(function (value, key) {
+        var pair = key + '=' + value;
+        if (seen.has(pair)) return;
+        seen.add(pair);
+        merged.append(key, value);
+      });
+      var nextUrl = targetUrl.pathname + (merged.toString() ? '?' + merged.toString() : '');
+      if (window.htmx) {
+        window.htmx.ajax('GET', nextUrl, { target: '#journal-main', swap: 'outerHTML' });
+        window.history.pushState({}, '', nextUrl);
+      } else {
+        window.location.href = nextUrl;
+      }
+    }, true);
+  })();
+</script>
 {% endmacro %}

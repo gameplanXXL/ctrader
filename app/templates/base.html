@@ -7,6 +7,14 @@
   <link rel="stylesheet" href="{{ url_for('static', path='css/compiled.css') }}">
   <script src="{{ url_for('static', path='js/viewport-guard.js') }}" defer></script>
   <script src="{{ url_for('static', path='js/htmx.min.js') }}" defer></script>
+  {# Story 4.5 chart library — drop the real
+     `lightweight-charts.standalone.production.js` (35 KB, TradingView
+     Apache-2.0) into `app/static/js/vendor/` and the drilldown chart
+     activates automatically. The placeholder file loads as a no-op
+     until then; `window.LightweightCharts` stays undefined so the
+     chart container renders its "Chart-Library nicht geladen"
+     fallback. Code-review H5. #}
+  <script src="{{ url_for('static', path='js/vendor/lightweight-charts.standalone.production.js') }}" defer onerror="this.remove()"></script>
 </head>
 <body>
   {% include "_topbar.html" %}

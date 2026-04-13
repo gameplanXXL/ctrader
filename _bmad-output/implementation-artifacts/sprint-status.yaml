@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T00:30'
+last_updated: '2026-04-14T01:15'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -63,13 +63,13 @@ development_status:
   # EPIC 4: Journal-Intelligence — Facetten, Aggregation & Visualisierung
   # =========================================================================
   epic-4: in-progress
-  4-1-facet-filter-system: review
-  4-2-aggregation-hero-metrics: review
-  4-3-mae-mfe-calculation: review  # Client chain is stubs-only until IB historical wire-up
-  4-4-pnl-calendar-view: review
-  4-5-ohlc-chart-lightweight-charts: review  # Vendor JS file deferred (graceful placeholder)
-  4-6-command-palette: review
-  4-7-csv-export-save-query: review
+  4-1-facet-filter-system: review  # Shift+click + arrow-nav landed post-Tranche-A; 2000-trade perf pending
+  4-2-aggregation-hero-metrics: review  # Sparklines on all cards post-Tranche-A; agg cache deferred
+  4-3-mae-mfe-calculation: review  # Sign + hot-pinning fixed; real OHLC clients stubbed
+  4-4-pnl-calendar-view: done
+  4-5-ohlc-chart-lightweight-charts: review  # Script tag fixed post-Tranche-A; vendor binary manual drop
+  4-6-command-palette: review  # Strategies + trade ids indexed post-Tranche-A
+  4-7-csv-export-save-query: done
 
   # =========================================================================
   # EPIC 5: Fundamental-Integration (MCP-Layer)

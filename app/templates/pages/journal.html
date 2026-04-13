@@ -23,23 +23,30 @@
     </div>
   </header>
 
-  {# Story 4.2 — hero aggregation block (query prose + stat cards) #}
+  {# Story 4.2 — hero aggregation block (query prose + stat cards).
+     Code-review M3 / Auditor 4.2 AC #1: each card gets a sparkline
+     beneath it. All four share the same cumulative-PnL series
+     because that's what we have; the visual cue is "shape of recent
+     performance" per UX-DR14/UX-DR68. #}
   {% if aggregation %}
     <section class="journal__hero">
       {{ query_prose(prose_text) }}
       <div class="journal__hero-grid">
-        {{ stat_card("Trades", aggregation.trade_count, variant="neutral") }}
+        {{ stat_card("Trades", aggregation.trade_count, sparkline_svg=sparkline_svg, variant="neutral") }}
         {{ stat_card("Expectancy", aggregation.expectancy_float | format_pnl, sparkline_svg=sparkline_svg, variant=("gain" if aggregation.expectancy_float > 0 else "loss" if aggregation.expectancy_float < 0 else "neutral")) }}
-        {{ stat_card("Winrate", "%.0f%%" | format(aggregation.winrate_pct), variant="neutral") }}
-        {{ stat_card("Drawdown", aggregation.drawdown_float | format_pnl, variant=("loss" if aggregation.drawdown_float < 0 else "neutral")) }}
+        {{ stat_card("Winrate", "%.0f%%" | format(aggregation.winrate_pct), sparkline_svg=sparkline_svg, variant="neutral") }}
+        {{ stat_card("Drawdown", aggregation.drawdown_float | format_pnl, sparkline_svg=sparkline_svg, variant=("loss" if aggregation.drawdown_float < 0 else "neutral")) }}
       </div>
     </section>
   {% endif %}
 
-  {# Story 4.1 — facet bar #}
+  {# Story 4.1 — facet bar. `build_facet_href` is passed through as
+     a per-request callable (code-review H1) so the macro resolves it
+     without relying on a shared Jinja env global. #}
   {% if facet_selections %}
     {{ facet_bar(
         facet_selections,
+        build_facet_href=build_facet_href,
         base_url="/journal",
         has_any_filter=has_any_filter,
         reset_href="/journal"
@@ -296,13 +303,23 @@
 <script>
   function savePreset() {
     var name = window.prompt("Name fuer dieses Query-Preset:");
-    if (!name) return;
+    if (!name || !name.trim()) return;
     var params = new URLSearchParams(window.location.search);
     var filters = {};
     params.forEach(function (value, key) {
       if (!filters[key]) filters[key] = [];
       filters[key].push(value);
     });
+    // Code-review M11 / EC-23: don't save empty-filter presets —
+    // they'd show up in the palette as no-op entries.
+    if (Object.keys(filters).length === 0) {
+      var warnEvt = new CustomEvent("showToast", {
+        detail: { message: "Setze erst Filter, bevor du speicherst.", variant: "warning" },
+        bubbles: true
+      });
+      document.body.dispatchEvent(warnEvt);
+      return;
+    }
     fetch("/api/presets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },

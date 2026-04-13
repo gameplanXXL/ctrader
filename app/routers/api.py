@@ -43,14 +43,66 @@ async def command_palette_items(request: Request) -> JSONResponse:
     return JSONResponse(items)
 
 
+# Code-review M10 / BH-25: whitelist the facet keys a preset is
+# allowed to store. Without this, a crafted POST could persist
+# arbitrary JSONB keys that surface in the command palette.
+# Mirror the set from `pages._FACET_KEYS` — kept local to avoid a
+# circular import between api.py and pages.py.
+_ALLOWED_FACET_KEYS = {
+    "asset_class",
+    "broker",
+    "horizon",
+    "strategy",
+    "trigger_type",
+    "followed",
+    "confidence_band",
+    "regime_tag",
+}
+
+
 class PresetPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     filters: dict[str, list[str]] = Field(default_factory=dict)
 
+    @classmethod
+    def _validate_name(cls, value: str) -> str:
+        stripped = value.strip()
+        if not stripped:
+            raise ValueError("name must not be empty / whitespace")
+        return stripped
+
+    def cleaned_filters(self) -> dict[str, list[str]]:
+        """Return a copy of `filters` with only whitelisted facet keys
+        and non-empty value lists. Raises `ValueError` if nothing
+        survives (empty presets are useless and confuse the palette).
+        """
+
+        cleaned: dict[str, list[str]] = {}
+        for key, values in self.filters.items():
+            if key not in _ALLOWED_FACET_KEYS:
+                continue
+            trimmed = [str(v).strip() for v in values if str(v).strip()]
+            if trimmed:
+                cleaned[key] = trimmed
+        if not cleaned:
+            raise ValueError("filters must contain at least one facet value")
+        return cleaned
+
 
 @router.post("/presets")
 async def save_query_preset(request: Request, payload: PresetPayload) -> JSONResponse:
-    """Story 4.7 / FR61 — upsert a saved query preset."""
+    """Story 4.7 / FR61 — upsert a saved query preset.
+
+    Code-review M10/M11: validate the payload's facet keys against the
+    whitelist and reject empty-filter presets (they'd surface in the
+    command palette as no-op entries).
+    """
+
+    try:
+        name = PresetPayload._validate_name(payload.name)
+        cleaned_filters = payload.cleaned_filters()
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from None
 
     db_pool = getattr(request.app.state, "db_pool", None)
     if db_pool is None or not hasattr(db_pool, "acquire"):
@@ -58,7 +110,7 @@ async def save_query_preset(request: Request, payload: PresetPayload) -> JSONRes
 
     try:
         async with db_pool.acquire() as conn:
-            preset = await save_preset(conn, payload.name, payload.filters)
+            preset = await save_preset(conn, name, cleaned_filters)
     except Exception as exc:  # noqa: BLE001
         logger.warning("api.presets.save_failed", error=str(exc))
         raise HTTPException(status_code=500, detail="could not save preset") from None

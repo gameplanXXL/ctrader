@@ -28,17 +28,13 @@ def test_single_asset_class() -> None:
 
 
 def test_crypto_plus_broker_combines() -> None:
-    prose = render_query_prose(
-        {"asset_class": ["crypto"], "broker": ["ctrader"]}
-    )
+    prose = render_query_prose({"asset_class": ["crypto"], "broker": ["ctrader"]})
     assert "Crypto-Trades" in prose
     assert "cTrader" in prose
 
 
 def test_agent_signal_with_override() -> None:
-    prose = render_query_prose(
-        {"trigger_type": ["satoshi_signal"], "followed": ["override"]}
-    )
+    prose = render_query_prose({"trigger_type": ["satoshi_signal"], "followed": ["override"]})
     assert "Satoshi" in prose
     assert "Override" in prose
 
@@ -49,9 +45,7 @@ def test_multi_asset_class_joins_with_slash() -> None:
 
 
 def test_horizon_added_as_qualifier() -> None:
-    prose = render_query_prose(
-        {"asset_class": ["stock"], "horizon": ["intraday"]}
-    )
+    prose = render_query_prose({"asset_class": ["stock"], "horizon": ["intraday"]})
     assert "Stock-Trades" in prose
     assert "Intraday" in prose
 

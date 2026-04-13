@@ -13,7 +13,7 @@ endpoints so FastAPI doesn't try to re-evaluate `TemplateResponse`
 That's also why this module does **not** use future-annotations at all.
 """
 
-from datetime import date, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from urllib.parse import urlencode
 
@@ -236,9 +236,13 @@ async def journal_page(
             "computed_expectancy": compute_expectancy_at_entry(expanded_trade),
         }
 
-    # Expose the facet-href builder to the template so facet_bar can
-    # compute toggle URLs for every chip.
-    templates.env.globals["build_facet_href"] = _facet_href_builder(facets, "/journal")
+    # Facet-href builder is passed as a per-request context variable
+    # (NOT attached to `templates.env.globals`). Code-review H1 /
+    # BH-37 / EC-43 — env.globals is a module-level dict and mutating
+    # it per request races under concurrent HTMX requests: request A
+    # can render with request B's builder and produce URLs that reflect
+    # the wrong facet selection.
+    build_facet_href = _facet_href_builder(facets, "/journal")
 
     # Current URL query string (minus `page` / `expand`) — the hero
     # block's CSV link re-uses it, and the "Save preset" JS reads it
@@ -263,6 +267,7 @@ async def journal_page(
             "sparkline_svg": sparkline_svg,
             "prose_text": render_query_prose(facets),
             "current_query": current_query,
+            "build_facet_href": build_facet_href,
         },
     )
 
@@ -270,16 +275,20 @@ async def journal_page(
 @router.get("/journal/calendar", include_in_schema=False)
 async def calendar_page(
     request: Request,
-    year: int = Query(default=None),
-    month: int = Query(default=None),
+    year: int = Query(default=None, ge=1970, le=2100),
+    month: int = Query(default=None, ge=1, le=12),
 ):
     """Story 4.4 — monthly P&L calendar.
 
     Defaults to the current UTC month. Clicking a cell links back to
     `/journal?date=YYYY-MM-DD`.
+
+    Code-review M8 / BH-16 / EC-16: year/month are Query-bounded so
+    `?month=13` or `?year=-5000` return 422 instead of 500ing
+    `datetime(year, month, 1)`.
     """
 
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
     if year is None:
         year = now.year
     if month is None:
@@ -342,7 +351,7 @@ async def journal_csv_export(request: Request):
             logger.warning("journal_export.db_error", error=str(exc))
             body = "\ufeff"  # BOM only
 
-    filename = f"ctrader-trades-{datetime.utcnow().strftime('%Y-%m-%d')}.csv"
+    filename = f"ctrader-trades-{datetime.now(UTC).strftime('%Y-%m-%d')}.csv"
     return Response(
         content=body,
         media_type="text/csv; charset=utf-8",

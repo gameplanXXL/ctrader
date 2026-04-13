@@ -29,14 +29,18 @@ class DailyPnlCell:
 # calendar shows activity days even before exits land — but only
 # count pnl from closed rows, so cells with only open trades render
 # as "activity without $" (grey tint).
+#
+# Code-review H8 / BH-12 / EC-12: explicit inner parens around each
+# range so a future `AND user_id = $X` can't accidentally bind to only
+# one branch of the OR. Precedence-safe by construction.
 _SQL = """
 SELECT
     id, symbol, side, quantity, entry_price, exit_price,
     opened_at, closed_at, pnl, fees
   FROM trades
  WHERE (
-        closed_at >= $1 AND closed_at < $2
-     OR opened_at >= $1 AND opened_at < $2
+        (closed_at >= $1 AND closed_at < $2)
+     OR (opened_at >= $1 AND opened_at < $2)
  )
 """
 

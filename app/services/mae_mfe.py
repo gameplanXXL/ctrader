@@ -77,7 +77,10 @@ async def compute_mae_mfe(
         return MaeMfeResult(None, None, None, None)
 
     entry_d = Decimal(str(entry))
-    qty_d = Decimal(str(quantity))
+    # Code-review BH-10: use absolute quantity so a signed-negative
+    # position (IB reports shorts as negative in some schemas) doesn't
+    # flip the dollar-unit sign away from the clamped price excursion.
+    qty_d = abs(Decimal(str(quantity)))
 
     candles = await _get_candles(
         conn,
@@ -93,15 +96,20 @@ async def compute_mae_mfe(
     lows = [c.low for c in candles]
     hi = max(highs)
     lo = min(lows)
+    zero = Decimal("0")
 
+    # Code-review H2 / BH-7 / EC-29: clamp MAE to ≤0 and MFE to ≥0.
+    # Without the clamp, a long that never dipped below entry reports
+    # a *positive* MAE (nonsensical); a short whose high stayed below
+    # entry reports a fabricated negative MAE. Clamping to zero
+    # faithfully says "never went adverse / never went favorable" in
+    # those corner cases.
     if side == "buy":
-        mae = lo - entry_d
-        mfe = hi - entry_d
+        mae = min(lo - entry_d, zero)
+        mfe = max(hi - entry_d, zero)
     elif side in ("sell", "short", "cover"):
-        mae = entry_d - hi  # adverse = price up
-        mfe = entry_d - lo  # favorable = price down
-        # Normalize signs: MAE must be negative.
-        mae = -abs(mae) if mae > 0 else mae
+        mae = min(entry_d - hi, zero)
+        mfe = max(entry_d - lo, zero)
     else:
         return MaeMfeResult(None, None, None, None)
 
@@ -156,7 +164,19 @@ UPDATE trades
 
 
 async def persist_mae_mfe(conn: asyncpg.Connection, trade_id: int, result: MaeMfeResult) -> None:
-    """Cache the computed MAE/MFE on the trades row."""
+    """Cache the computed MAE/MFE on the trades row.
+
+    Code-review H2 / BH-9 / BH-41 / EC-48: only stamp
+    `mae_mfe_computed_at` when the compute actually produced a value.
+    Previously an all-None result still stamped `NOW()`, which
+    permanently hot-pinned the degraded state — even after a real IB
+    historical client landed, subsequent drilldowns would skip the
+    compute forever because `computed_at IS NOT NULL` short-circuited
+    the lazy fetch in `routers/trades.py`.
+    """
+
+    if not result.available:
+        return
 
     await conn.execute(
         _PERSIST_SQL,

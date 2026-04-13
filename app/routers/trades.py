@@ -138,13 +138,22 @@ async def chart_data(request: Request, trade_id: int):
         opened_at = trade["opened_at"]
         closed_at = trade.get("closed_at") or opened_at
 
-        candles = await get_cached_candles(
-            conn,
-            symbol=symbol,
-            start=opened_at,
-            end=closed_at,
-            timeframe=Timeframe.M1,
-        )
+        # Code-review H7 / EC-31 / EC-34: walk the same (M1, M5)
+        # preference order that MAE/MFE uses. Previously this endpoint
+        # hardcoded M1, so if MAE/MFE had cached only M5 data the
+        # chart rendered "not available" even though the cache held
+        # usable candles.
+        candles: list = []
+        for tf in (Timeframe.M1, Timeframe.M5):
+            candles = await get_cached_candles(
+                conn,
+                symbol=symbol,
+                start=opened_at,
+                end=closed_at,
+                timeframe=tf,
+            )
+            if candles:
+                break
 
     candle_payload = [
         {

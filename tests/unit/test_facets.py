@@ -47,9 +47,7 @@ def test_build_where_clause_multi_select_uses_ANY() -> None:
 
 
 def test_build_where_clause_combined_facets_increment_placeholders() -> None:
-    where, params = build_where_clause(
-        {"asset_class": ["stock"], "broker": ["ib"]}
-    )
+    where, params = build_where_clause({"asset_class": ["stock"], "broker": ["ib"]})
     assert "asset_class = ANY($1)" in where
     assert "broker = ANY($2::trade_source[])" in where
     assert params == [["stock"], ["ib"]]

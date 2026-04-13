@@ -80,3 +80,63 @@ This file is append-only — never delete entries, only mark them done.
 - **D60** `_trigger_spec_json` round-trips via `json.loads(json.dumps(..., sort_keys=True))` — sort-key ordering is lost after the second encode. Cosmetic (JSONB is order-agnostic). *Source: edge-case EC-28*
 - **D61** `list_strategies_for_dropdown` swallows `Exception`; an outer `logger.exception` would improve debug. *Source: edge-case EC-48*
 - **D62** Story 3.1.1 follow-up — consolidated: submit-button spec reconciliation, fuzzy-search, blur validation, textarea-aware Enter hint. *Source: triage bundle*
+
+---
+
+## Deferred from: code review of Epic 4 (Stories 4.1–4.7) — 2026-04-14
+
+### Facet framework
+- **D63** `build_where_clause` placeholders hardcoded to start at `$1`. Future callers that prepend their own parameter would silently alias. Accept `placeholder_start` arg when needed. *Source: BH-1*
+- **D64** `_FACET_KEYS` in `pages.py` duplicates registry names — two sources of truth. Build dynamically from `get_registry().names` when a new facet lands. *Source: EC-6*
+- **D65** `render_facets` swallows per-facet `get_values` errors into empty lists without marking the facet "errored" in the UI. Worth a small "(error)" badge. *Source: BH-22*
+- **D66** `test_build_where_clause_*` tests hardcode `$1` / `$2` placeholder numbers. Brittle on registry reordering. *Source: EC-7*
+- **D67** Facet chip `hx-target="#journal-main"` fails silently on pages without that element (calendar). Fall back to `href` works but UX intent is wrong. *Source: BH-39*
+- **D68** `_parse_facet_query` splits on `,` without URL-decoding. Values like `test%2Ckey` arrive already decoded, then get unintentionally split. *Source: EC-44*
+
+### Aggregation / drawdown
+- **D69** Expectancy is dollar-based, not R-multiple. Swap to R when Epic 11 persists `stop_price`. *Source: acceptance-auditor*
+- **D70** Hero card labels don't distinguish `trade_count` (all) from `closed_count` (used for expectancy). Potential misread. Relabel or add a sub-count. *Source: BH-6*
+- **D71** Opacity flash on facet-change (UX-DR42). Deferred — Single-User-Localhost. *Source: acceptance-auditor*
+- **D72** Server-side aggregation cache with insert-based invalidation (UX-DR103). Deferred — dataset is tiny today. *Source: acceptance-auditor*
+- **D73** `_ensure_pnl` behavior with partially-populated row (e.g., exit_price None but pnl NULL). Verify `compute_pnl` handles all permutations cleanly. *Source: EC-11*
+
+### MAE/MFE / OHLC
+- **D74** OHLC batch upsert does N round-trips. At 390 1m candles per trade, acceptable locally but not for backfill. `executemany` + `COPY` when needed. *Source: EC-30*
+- **D75** Cache read SQL uses half-open `ts >= $3 AND ts < $4`. Exit-candle off-by-one for trades that close exactly on a minute boundary. *Source: EC-33*
+- **D76** `asyncio.get_event_loop().time()` deprecated in 3.12+. Cosmetic. *Source: EC-32*
+- **D77** `_get_candles` short-circuits on first TF match — if only M5 cache exists, the fresh-fetch path is taken instead of using M5. *Source: BH-11*
+- **D78** Scalp trades with `closed_at == opened_at` get empty candle range → NULL MAE/MFE. No user hint. *Source: BH-8*
+- **D79** Real IB/Binance/Kraken/MCP OHLC clients — Story 4.3 AC #3. Wire when a live data source lands. *Source: acceptance-auditor*
+- **D80** lightweight-charts binary drop-in — Story 4.5. Chef provides the 35KB file when needed. *Source: acceptance-auditor*
+- **D81** Chart markers can land outside the candle range (no bounds guard). Lightweight-charts handles it silently. *Source: EC-35*
+- **D82** Multiple `<style>` blocks re-inject on every HTMX swap of `trade_detail.html`. Cosmetic DOM bloat. *Source: BH-33, EC-36*
+
+### Calendar
+- **D83** Month-boundary double-bucketing — a trade opened in March and closed in April shows on both months' calendars. Doc or split. *Source: EC-13*
+- **D84** Calendar is UTC-bucketed; Chef in CET sees Monday early-morning trades on Sunday's cell. Locally-local day bucketing optional. *Source: BH-13*
+- **D85** Calendar tint uses fixed 25% mix, not proportional to |pnl|. Minor spec drift (UX-DR72). *Source: acceptance-auditor*
+
+### CSV export
+- **D86** DB-error fallback returns `"\ufeff"` (BOM only) + HTTP 200. Should 5xx or include header row + error line. *Source: BH-19 / EC-18*
+- **D87** `mistake_tags` CSV column reads from `trigger_spec->>'mistake_tags'` — correct post-Epic-3, flag if taxonomy ever moves them elsewhere. *Source: BH-43*
+- **D88** Decimals like `Decimal("1E+1")` render as scientific notation in CSV. Normalize via quantize. *Source: BH-18*
+- **D89** Computed pnl = `Decimal("0")` shows as empty string in CSV (`Decimal("0") or ""`). Could confuse downstream. *Source: EC-19*
+- **D90** `StreamingResponse` for 2k+ row CSV instead of buffered body. Deferred. *Source: BH-38*
+
+### Command palette
+- **D91** `aria-activedescendant` on the listbox element itself, not just `aria-selected` per-item. UX-DR23 only partial. *Source: acceptance-auditor*
+- **D92** Palette items cached forever — saving a new preset doesn't refresh the open palette. Refetch on `showToast` or refetch on reopen. *Source: EC-38*
+- **D93** `evt.key === 'k'` breaks on CapsLock (sends `'K'`). Use `toLowerCase()`. *Source: EC-39*
+- **D94** No input-element blacklist — Ctrl+K intercepts while typing in textareas / prompts. Guard on `evt.target.tagName`. *Source: EC-37*
+- **D95** Chrome's Ctrl+K focuses the address bar in some locales. Document the collision. *Source: BH-28*
+- **D96** Alpine.js spec vs vanilla-JS delivery. Update UX-Spec to allow vanilla. *Source: acceptance-auditor*
+- **D97** Palette JSON route has no auth — matches the rest of the app. Single-User-Localhost. *Source: BH-25*
+
+### Query presets / API
+- **D98** `save_preset` ON CONFLICT preserves `created_at`. Re-saves stay in their original palette position. Expected but UX-surprising. *Source: BH-23 / EC-21*
+- **D99** `window.prompt()` instead of styled Alpine modal. Spec drift. *Source: acceptance-auditor*
+- **D100** Migration numbering: spec said `005_query_presets_table.sql`, shipped as `004_query_presets.sql`. Cosmetic. *Source: acceptance-auditor*
+
+### Operational / perf
+- **D101** 2000-trade performance test not run (AC 4.1/4.2 NFR-P3/P4). Revisit when dataset grows. *Source: acceptance-auditor*
+- **D102** `savePreset` JS is redeclared on every HTMX swap of the journal fragment; CSS duplicates accumulate. Extract to base.html. *Source: BH-40*

@@ -158,9 +158,19 @@ async def list_trades(
     # Append the calendar-day filter (Story 4.4) if present. We keep
     # it outside the facet framework because it's a single-value
     # filter that never renders as a chip.
+    #
+    # Code-review H6 / EC-4: force UTC on the `::date` cast. Without
+    # `AT TIME ZONE 'UTC'`, Postgres uses its session TZ, which may
+    # not match the calendar view's UTC bucketing in
+    # `daily_pnl.get_daily_pnl`. A trade opened at 23:30 UTC from
+    # Berlin (UTC+2) would end up in the "next day" Postgres-local
+    # bucket and the calendar click would miss it.
     if trade_date is not None:
         idx = len(params) + 1
-        day_fragment = f"(opened_at::date = ${idx} OR closed_at::date = ${idx})"
+        day_fragment = (
+            f"((opened_at AT TIME ZONE 'UTC')::date = ${idx}"
+            f" OR (closed_at AT TIME ZONE 'UTC')::date = ${idx})"
+        )
         where_sql = f"({where_sql}) AND {day_fragment}"
         params.append(trade_date)
 

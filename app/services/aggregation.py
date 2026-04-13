@@ -100,7 +100,12 @@ async def compute_aggregation(
     wins = 0
     total_pnl = Decimal("0")
     cum_pnl = Decimal("0")
-    running_max = Decimal("0")
+    # Code-review H3 / BH-4 / EC-8: initialize `running_max` to None
+    # and seed it with the first cumulative value. Previously the
+    # phantom zero baseline reported drawdown = -total_loss for any
+    # purely-losing series, even if those losses started from a
+    # flat-zero equity curve that never existed.
+    running_max: Decimal | None = None
     max_drawdown = Decimal("0")
     sparkline: list[float] = []
 
@@ -116,8 +121,11 @@ async def compute_aggregation(
         sparkline.append(float(cum_pnl))
         if pnl > 0:
             wins += 1
-        # Drawdown: peak-to-trough of the cumulative series.
-        if cum_pnl > running_max:
+        # Drawdown: peak-to-trough of the cumulative series. The
+        # running_max starts at the first cumulative value so a
+        # strictly-losing series reports a *zero* drawdown against
+        # its own baseline (there was no prior peak to fall from).
+        if running_max is None or cum_pnl > running_max:
             running_max = cum_pnl
         drawdown = cum_pnl - running_max  # ≤ 0
         if drawdown < max_drawdown:
