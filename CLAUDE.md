@@ -48,7 +48,8 @@ Folgende Entscheidungen stehen fest und werden **nicht** ohne expliziten Nutzer-
 - **Sprache:** Python 3.12+
 - **Dependency-Manager:** `uv`
 - **Frontend:** FastAPI + HTMX + Tailwind. Kein Node, kein React, kein eigener Build-Step.
-- **Storage:** DuckDB (embedded, zero-ops). Kein TimescaleDB, kein PostgreSQL.
+- **Storage:** PostgreSQL (bestehende Instanz, Chef betreibt bereits mehrere). Entscheidung am 2026-04-12 von DuckDB auf PostgreSQL geändert — Gründe: automatisiertes Daytrading mit ~10 Trades/Tag, Concurrent-Write-Sicherheit, Migrationsvermeidung, vorhandene Ops-Erfahrung.
+- **Chart-Rendering:** lightweight-charts (TradingView Open-Source, Apache 2.0, 35KB). Dynamische OHLC-Charts mit Entry/Exit-Markern und Indikatoren im Trade-Drilldown. Kein TradingView Widget, kein Plotly, kein mplfinance. Entscheidung am 2026-04-12 — ersetzt Screenshot-Upload (FR13c) durch interaktive Charts.
 - **IB-Integration:** `ib_async` (nicht `ib_insync` — unmaintained seit 2023) + Flex Queries für historische Reconciliation.
 - **cTrader-Integration:** OpenApiPy (Protobuf), mögliche partielle Wiederverwendung aus `/home/cneise/Project/ALT/ctrader2` nur nach 1-Tages-Spike-Timebox.
 - **Fundamental-/News-Layer:** Harte MCP-Dependency auf `/home/cneise/Project/fundamental`. Keine Re-Implementierung.

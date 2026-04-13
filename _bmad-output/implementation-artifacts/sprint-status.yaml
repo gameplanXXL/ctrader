@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-13'
+last_updated: '2026-04-13T19:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -26,7 +26,7 @@ development_status:
   # EPIC 1: Projekt-Bootstrap & Design-System
   # =========================================================================
   epic-1: in-progress
-  1-1-fastapi-scaffolding: ready-for-dev
+  1-1-fastapi-scaffolding: review
   1-2-migrations-framework: ready-for-dev
   1-3-taxonomy-loader: ready-for-dev
   1-4-design-tokens-tailwind: ready-for-dev

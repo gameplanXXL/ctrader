@@ -1,0 +1,52 @@
+# ctrader — two-service local dev stack
+#
+# Services: ctrader (FastAPI app) + postgres (PostgreSQL 16).
+# Bind: ctrader is exposed on 127.0.0.1:8000 only (NFR-S2). Postgres is
+# reachable only from within the compose network; host-side access goes
+# through ctrader.
+#
+# Usage:
+#   cp .env.example .env    # edit as needed
+#   docker compose up -d
+#   curl http://127.0.0.1:8000/
+
+services:
+  ctrader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      # Override for in-network Postgres hostname. If you instead target
+      # Chef's existing PostgreSQL instance, set DATABASE_URL in .env and
+      # remove the `postgres` service below.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-ctrader}:${POSTGRES_PASSWORD:-ctrader}@postgres:5432/${POSTGRES_DB:-ctrader}
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - ./data/logs:/app/data/logs
+      - ./data/mcp-snapshots:/app/data/mcp-snapshots
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-ctrader}
+      POSTGRES_USER: ${POSTGRES_USER:-ctrader}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ctrader}
+    volumes:
+      - ctrader-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ctrader} -d ${POSTGRES_DB:-ctrader}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  ctrader-pgdata:

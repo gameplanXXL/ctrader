@@ -1,0 +1,44 @@
+# Keep the Docker build context small and reproducible.
+
+# VCS
+.git/
+.gitignore
+.gitattributes
+
+# Python cache / venv
+__pycache__/
+*.py[cod]
+*.so
+.venv/
+.python-version
+
+# Build artifacts
+build/
+dist/
+*.egg-info/
+
+# Tooling caches
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+
+# Local data
+data/
+*.log
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+
+# Tests and planning artifacts are not needed inside the runtime image.
+tests/
+_bmad/
+_bmad-output/
+docs/
+README.md
+
+# Secrets — must never land in the image.
+.env
+.env.*
+!.env.example

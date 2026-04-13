@@ -63,12 +63,14 @@ coverage.xml
 .ipynb_checkpoints/
 *.ipynb_checkpoints
 
-# DuckDB
-*.duckdb
-*.duckdb.wal
-*.duckdb.tmp
-data/*.duckdb
-data/local/
+# PostgreSQL runtime artifacts (pg_dump backups live in data/backups/)
+data/backups/
+data/pgdata/
+*.sql.gz
+
+# Runtime data directories (mounted by docker-compose)
+data/logs/
+data/mcp-snapshots/
 
 # Logs
 logs/
