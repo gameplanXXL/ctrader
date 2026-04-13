@@ -14,6 +14,127 @@
     {% block content %}{% endblock %}
   </main>
 
+  {# Command palette — Ctrl+K overlay. Story 4.6 / FR59. Vanilla JS
+     so we don't pull in Alpine. The item list is fetched once on
+     first open from /api/command-palette and fuzzy-matched client-
+     side. #}
+  <div id="command-palette" class="command-palette" role="dialog" aria-modal="true" aria-label="Command Palette" hidden>
+    <div class="command-palette__backdrop" data-close></div>
+    <div class="command-palette__panel">
+      <input
+        id="command-palette-input"
+        type="text"
+        autocomplete="off"
+        placeholder="Jump to … (Ctrl+K)"
+        class="command-palette__input"
+      >
+      <ul id="command-palette-list" role="listbox" class="command-palette__list"></ul>
+    </div>
+  </div>
+  <script>
+    (function () {
+      var overlay = document.getElementById('command-palette');
+      if (!overlay) return;
+      var input = document.getElementById('command-palette-input');
+      var list = document.getElementById('command-palette-list');
+      var items = [];
+      var filtered = [];
+      var activeIdx = 0;
+
+      function open() {
+        overlay.hidden = false;
+        input.value = '';
+        input.focus();
+        render('');
+        if (items.length === 0) {
+          fetch('/api/command-palette').then(function (res) {
+            return res.ok ? res.json() : [];
+          }).then(function (data) {
+            items = Array.isArray(data) ? data : [];
+            render('');
+          }).catch(function () { items = []; });
+        }
+      }
+      function close() {
+        overlay.hidden = true;
+      }
+      function fuzzyMatch(needle, haystack) {
+        if (!needle) return true;
+        var n = needle.toLowerCase();
+        var h = haystack.toLowerCase();
+        var hi = 0;
+        for (var i = 0; i < n.length; i++) {
+          hi = h.indexOf(n[i], hi);
+          if (hi < 0) return false;
+          hi++;
+        }
+        return true;
+      }
+      function render(query) {
+        filtered = items.filter(function (it) {
+          return fuzzyMatch(query, it.label + ' ' + (it.category || ''));
+        });
+        if (activeIdx >= filtered.length) activeIdx = 0;
+        list.innerHTML = '';
+        filtered.forEach(function (it, idx) {
+          var li = document.createElement('li');
+          li.className = 'command-palette-item' + (idx === activeIdx ? ' is-active' : '');
+          li.setAttribute('role', 'option');
+          li.id = 'cpi-' + it.id;
+          li.setAttribute('aria-selected', idx === activeIdx ? 'true' : 'false');
+          var label = document.createElement('span');
+          label.className = 'command-palette-item__label';
+          label.textContent = it.label;
+          li.appendChild(label);
+          var category = document.createElement('span');
+          category.className = 'command-palette-item__category';
+          category.textContent = it.category || '';
+          li.appendChild(category);
+          if (it.hint) {
+            var kbd = document.createElement('kbd');
+            kbd.className = 'command-palette-item__shortcut';
+            kbd.textContent = it.hint;
+            li.appendChild(kbd);
+          }
+          li.addEventListener('click', function () { navigate(idx); });
+          list.appendChild(li);
+        });
+      }
+      function navigate(idx) {
+        var it = filtered[idx];
+        if (it && it.url) window.location.href = it.url;
+      }
+      document.addEventListener('keydown', function (evt) {
+        if ((evt.ctrlKey || evt.metaKey) && evt.key === 'k') {
+          evt.preventDefault();
+          overlay.hidden ? open() : close();
+          return;
+        }
+        if (overlay.hidden) return;
+        if (evt.key === 'Escape') { close(); return; }
+        if (evt.key === 'ArrowDown') {
+          evt.preventDefault();
+          activeIdx = Math.min(activeIdx + 1, filtered.length - 1);
+          render(input.value);
+        } else if (evt.key === 'ArrowUp') {
+          evt.preventDefault();
+          activeIdx = Math.max(activeIdx - 1, 0);
+          render(input.value);
+        } else if (evt.key === 'Enter') {
+          evt.preventDefault();
+          navigate(activeIdx);
+        }
+      });
+      input.addEventListener('input', function () {
+        activeIdx = 0;
+        render(input.value);
+      });
+      overlay.addEventListener('click', function (evt) {
+        if (evt.target.dataset.close !== undefined) close();
+      });
+    })();
+  </script>
+
   {# Toast host — listens for `showToast` HX-Trigger events from any
      endpoint (Story 3.1 AC #6). The payload carries `message` and
      an optional `variant` ∈ {success, error, info, warning}. #}
@@ -75,6 +196,79 @@
   </style>
 
   <style>
+    /* Command palette — Story 4.6. Vanilla overlay, no Alpine. */
+    .command-palette {
+      position: fixed;
+      inset: 0;
+      z-index: 2000;
+      display: flex;
+      justify-content: center;
+      align-items: flex-start;
+      padding-top: 15vh;
+    }
+    .command-palette__backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.55);
+      backdrop-filter: blur(2px);
+    }
+    .command-palette__panel {
+      position: relative;
+      width: 600px;
+      max-width: calc(100vw - 2rem);
+      background-color: var(--bg-elevated, #1f2937);
+      border: 1px solid var(--border-default, #30363d);
+      box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    }
+    .command-palette__input {
+      width: 100%;
+      padding: var(--space-4, 16px);
+      background: transparent;
+      border: none;
+      border-bottom: 1px solid var(--border-subtle, #21262d);
+      color: var(--text-primary, #c9d1d9);
+      font-family: inherit;
+      font-size: 16px;
+      outline: none;
+    }
+    .command-palette__list {
+      list-style: none;
+      padding: 0;
+      margin: 0;
+      max-height: 420px;
+      overflow-y: auto;
+    }
+    .command-palette-item {
+      display: flex;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-4);
+      cursor: pointer;
+      color: var(--text-secondary);
+    }
+    .command-palette-item.is-active {
+      background-color: var(--accent, #58a6ff);
+      color: var(--bg-void, #0d1117);
+    }
+    .command-palette-item__label {
+      flex: 1;
+      font-size: var(--font-size-body);
+    }
+    .command-palette-item__category {
+      font-size: var(--font-size-label);
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .command-palette-item.is-active .command-palette-item__category { color: inherit; opacity: 0.7; }
+    .command-palette-item__shortcut {
+      padding: 1px 6px;
+      background: rgba(255, 255, 255, 0.1);
+      border-radius: 3px;
+      font-size: 10px;
+      font-family: var(--font-mono, monospace);
+    }
+
     /* Layout-level styles that depend on design tokens. */
     .ctrader-main {
       max-width: var(--content-max-width, 1440px);

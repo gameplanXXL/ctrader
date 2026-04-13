@@ -1,14 +1,20 @@
-"""Trade-list query service (Story 2.3 + 2.4).
+"""Trade-list query service (Story 2.3 + 2.4 + 4.1).
 
 Pure async functions — no FastAPI coupling — so the same code paths
 are reachable from routers, scheduled jobs, and tests. All SQL lives
 here so the journal page never has raw SQL leaking into a Jinja
 template.
+
+Story 4.1 extends `list_trades` with a `facets` dict argument that
+is translated into a parameterized WHERE fragment by
+`app.services.facets.build_where_clause`. The journal route parses
+the query string and passes the dict unchanged.
 """
 
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from typing import Any
 
 import asyncpg
@@ -47,6 +53,11 @@ class TradeListPage:
         return self.page < self.total_pages
 
 
+# Story 4.1: list / count SQL templates are now format-strings with a
+# `{where_sql}` placeholder so the facet framework can splice its
+# WHERE fragment in without rebuilding the statement by hand. The
+# placeholder is guaranteed to be a SQL-safe fragment built from
+# `facets.build_where_clause` — never raw user input.
 _LIST_SQL = """
 SELECT
     id,
@@ -64,11 +75,12 @@ SELECT
     perm_id,
     trigger_spec
   FROM trades
+ WHERE {where_sql}
  ORDER BY opened_at DESC, id DESC
- LIMIT $1 OFFSET $2
+ LIMIT ${limit_placeholder} OFFSET ${offset_placeholder}
 """
 
-_COUNT_SQL = "SELECT COUNT(*) FROM trades"
+_COUNT_SQL = "SELECT COUNT(*) FROM trades WHERE {where_sql}"
 
 # Untagged counter (Story 2.3 AC #3, FR11):
 # - Only IB trades (cTrader bot trades carry trigger_spec by construction)
@@ -114,6 +126,8 @@ async def list_trades(
     *,
     page: int = 1,
     per_page: int = DEFAULT_PAGE_SIZE,
+    facets: dict[str, list[str]] | None = None,
+    trade_date: date | None = None,
 ) -> TradeListPage:
     """Paginated trade list, newest first.
 
@@ -121,14 +135,36 @@ async def list_trades(
     out of range are clamped to a valid range — both lower bound
     (`< 1`) AND upper bound (`> total_pages`) — so a stale bookmark
     always lands on a page that contains data.
+
+    `facets` is the URL-query-param form (`{"asset_class": ["stock"]}`)
+    and gets translated into a parameterized WHERE fragment by the
+    facet framework (Story 4.1). `trade_date` is the click-on-a-day
+    filter from the calendar view (Story 4.4); it matches any trade
+    whose `opened_at::date` equals the given day.
     """
+
+    # Lazy import — avoid a module-level import cycle with facets which
+    # may want to call trade_query primitives later.
+    from app.services.facets import build_where_clause
 
     if page < 1:
         page = 1
     if per_page < 1:
         per_page = DEFAULT_PAGE_SIZE
 
-    total_count = await conn.fetchval(_COUNT_SQL) or 0
+    facets = facets or {}
+    where_sql, params = build_where_clause(facets)
+
+    # Append the calendar-day filter (Story 4.4) if present. We keep
+    # it outside the facet framework because it's a single-value
+    # filter that never renders as a chip.
+    if trade_date is not None:
+        idx = len(params) + 1
+        day_fragment = f"(opened_at::date = ${idx} OR closed_at::date = ${idx})"
+        where_sql = f"({where_sql}) AND {day_fragment}"
+        params.append(trade_date)
+
+    total_count = await conn.fetchval(_COUNT_SQL.format(where_sql=where_sql), *params) or 0
 
     # Clamp upper bound: `?page=9999` on a 3-page dataset → page 3.
     max_page = max(1, (total_count + per_page - 1) // per_page) if total_count > 0 else 1
@@ -136,10 +172,19 @@ async def list_trades(
         page = max_page
 
     offset = (page - 1) * per_page
+    limit_placeholder = len(params) + 1
+    offset_placeholder = len(params) + 2
 
-    rows = await conn.fetch(_LIST_SQL, per_page, offset)
+    list_sql = _LIST_SQL.format(
+        where_sql=where_sql,
+        limit_placeholder=limit_placeholder,
+        offset_placeholder=offset_placeholder,
+    )
+    rows = await conn.fetch(list_sql, *params, per_page, offset)
     trades = [dict(row) for row in rows]
 
+    # Untagged counter is a global metric (ignores facets) so Chef
+    # always sees the total untagged backlog regardless of drill-in.
     untagged = await conn.fetchval(_UNTAGGED_COUNT_SQL)
 
     return TradeListPage(

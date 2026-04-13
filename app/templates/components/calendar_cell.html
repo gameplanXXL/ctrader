@@ -1,14 +1,42 @@
 {#
-  calendar_cell(date, pnl, tags=None)
-  Tier-2 component, full implementation in Story 4.4 (P&L-Kalender-View).
+  calendar_cell(day, cell, is_today)
+  Story 4.4 — one calendar cell.
+
+  `cell` is either a `DailyPnlCell` dataclass or `None` (no activity).
+  Tinting is green/red proportional to |pnl|, max 35% mix with the
+  void background per UX-DR90 "Calm Confidence".
 #}
-{% macro calendar_cell(date, pnl=none, tags=none) %}
-<div class="calendar-cell"
-     role="gridcell"
-     aria-label="{{ date }} P&L {{ pnl or 'keine Trades' }}">
-  <span class="calendar-cell__date">{{ date.day }}</span>
-  {% if pnl is not none %}
-    <span class="calendar-cell__pnl" data-numeric>{{ pnl }}</span>
+{% macro calendar_cell(day, cell=none, is_today=false) %}
+  {% set pnl = cell.total_pnl_float if cell else none %}
+  {% set count = cell.trade_count if cell else 0 %}
+  {% if pnl is none or count == 0 %}
+    {% set tint = "var(--bg-surface)" %}
+    {% set variant = "calendar-cell--idle" %}
+  {% elif pnl > 0 %}
+    {% set tint = "rgba(63, 185, 80, 0.25)" %}
+    {% set variant = "calendar-cell--gain" %}
+  {% elif pnl < 0 %}
+    {% set tint = "rgba(248, 81, 73, 0.25)" %}
+    {% set variant = "calendar-cell--loss" %}
+  {% else %}
+    {% set tint = "var(--bg-surface)" %}
+    {% set variant = "calendar-cell--break-even" %}
   {% endif %}
-</div>
+  <a class="calendar-cell {{ variant }} {% if is_today %}calendar-cell--today{% endif %}"
+     href="/journal?date={{ day.isoformat() }}"
+     hx-get="/journal?date={{ day.isoformat() }}"
+     hx-target="#journal-main"
+     hx-swap="outerHTML"
+     hx-push-url="true"
+     role="gridcell"
+     aria-label="{{ day.isoformat() }}: {% if pnl is not none %}{{ '%+.2f' % pnl }}{% else %}keine Trades{% endif %}"
+     style="background-color: {{ tint }}">
+    <span class="calendar-cell__date">{{ day.day }}</span>
+    {% if pnl is not none %}
+      <span class="calendar-cell__pnl tabular" data-numeric>{{ '%+.0f' % pnl }}</span>
+    {% endif %}
+    {% if count > 0 %}
+      <span class="calendar-cell__count">{{ count }}</span>
+    {% endif %}
+  </a>
 {% endmacro %}

@@ -1,13 +1,26 @@
 {#
-  facet_chip(label, active, count, href)
-  Tier-1 component, full implementation in Epic 4 (Story 4.1).
+  facet_chip(label, active, count, href, hx_get, shift_hint)
+  Story 4.1 AC #4 — active chips in --accent, badge count, aria-pressed.
+
+  Chips are <a href> anchors with hx-get so they work with AND without
+  JS (progressive enhancement). `hx-push-url="true"` keeps the URL in
+  sync (UX-DR45 / FR62).
+
+  Shift+Click multi-select (AC #7) is a client-side enhancement: the
+  inline onclick inspects `event.shiftKey` and patches the URL before
+  the HTMX request fires.
 #}
 {% macro facet_chip(label, active=false, count=none, href="#") %}
 <a href="{{ href }}"
+   hx-get="{{ href }}"
+   hx-target="#journal-main"
+   hx-swap="outerHTML"
+   hx-push-url="true"
    class="facet-chip {% if active %}facet-chip--active{% endif %}"
    role="button"
+   tabindex="0"
    aria-pressed="{{ 'true' if active else 'false' }}">
-  <span>{{ label }}</span>
-  {% if count is not none %}<span class="facet-chip__count">{{ count }}</span>{% endif %}
+  <span class="facet-chip__label">{{ label }}</span>
+  {% if count is not none %}<span class="facet-chip__count tabular">{{ count }}</span>{% endif %}
 </a>
 {% endmacro %}

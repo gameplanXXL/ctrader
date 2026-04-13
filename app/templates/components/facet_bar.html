@@ -1,10 +1,108 @@
 {#
-  facet_bar(facets)
-  Tier-1 component, full implementation in Epic 4 (Story 4.1).
-  Container that delegates rendering to individual facet_chip macros.
+  facet_bar(facet_selections, base_url, has_any_filter, reset_href)
+  Story 4.1 — horizontal strip of facet chip groups.
+
+  `facet_selections` is a list of `FacetSelection` dataclass instances.
+  Each has a `name`, `label`, `available` flag, and a list of
+  `FacetValue`s. Unavailable facets are hidden (AC #2 graceful
+  degradation).
+
+  The reset link appears whenever at least one filter is active
+  (AC #5).
 #}
-{% macro facet_bar(facets) %}
+{% from "components/facet_chip.html" import facet_chip %}
+
+{% macro facet_bar(facet_selections, base_url="/journal", has_any_filter=false, reset_href="/journal") %}
 <div class="facet-bar" role="toolbar" aria-label="Facettenfilter">
-  {% for chip in facets %}{{ chip }}{% endfor %}
+  {% for facet in facet_selections %}
+    {% if facet.available and facet.values %}
+      <div class="facet-bar__group" data-facet="{{ facet.name }}">
+        <span class="facet-bar__group-label">{{ facet.label }}</span>
+        {% for value in facet.values %}
+          {{ facet_chip(
+              label=value.label,
+              active=value.selected,
+              count=value.count,
+              href=build_facet_href(base_url, facet.name, value.id, value.selected)
+          ) }}
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endfor %}
+
+  {% if has_any_filter %}
+    <a class="facet-bar__reset"
+       href="{{ reset_href }}"
+       hx-get="{{ reset_href }}"
+       hx-target="#journal-main"
+       hx-swap="outerHTML"
+       hx-push-url="true">Reset</a>
+  {% endif %}
 </div>
+
+<style>
+  .facet-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    align-items: center;
+    padding: var(--space-3) 0;
+    border-bottom: 1px solid var(--border-subtle);
+    margin-bottom: var(--space-4);
+  }
+  .facet-bar__group {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--space-1);
+  }
+  .facet-bar__group-label {
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin-right: var(--space-1);
+  }
+  .facet-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    text-decoration: none;
+    font-size: var(--font-size-small);
+    cursor: pointer;
+  }
+  .facet-chip:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .facet-chip--active {
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border-color: var(--accent);
+  }
+  .facet-chip__count {
+    font-size: 10px;
+    padding: 0 4px;
+    background: rgba(255, 255, 255, 0.1);
+    color: inherit;
+  }
+  .facet-chip--active .facet-chip__count {
+    background: rgba(0, 0, 0, 0.2);
+  }
+  .facet-bar__reset {
+    margin-left: auto;
+    padding: 2px var(--space-3);
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+    text-decoration: none;
+    border: 1px dashed var(--border-default);
+  }
+  .facet-bar__reset:hover {
+    color: var(--text-primary);
+    border-color: var(--accent);
+  }
+</style>
 {% endmacro %}

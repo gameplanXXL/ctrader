@@ -1,0 +1,116 @@
+{% extends "base.html" %}
+{% from "components/calendar_cell.html" import calendar_cell %}
+
+{% block title %}P&L Calendar · ctrader{% endblock %}
+
+{% block content %}
+<section class="calendar-page">
+  <header class="calendar-page__header">
+    <h1 class="calendar-page__title">P&amp;L Calendar</h1>
+    <nav class="calendar-page__nav" aria-label="Month navigation">
+      <a class="calendar-page__nav-link" href="/journal/calendar?year={{ prev_year }}&month={{ prev_month }}">← {{ "%04d-%02d" | format(prev_year, prev_month) }}</a>
+      <span class="calendar-page__nav-current">{{ "%04d-%02d" | format(year, month) }}</span>
+      <a class="calendar-page__nav-link" href="/journal/calendar?year={{ next_year }}&month={{ next_month }}">{{ "%04d-%02d" | format(next_year, next_month) }} →</a>
+      <a class="calendar-page__nav-link" href="/journal">← Back to Journal</a>
+    </nav>
+  </header>
+
+  <div class="calendar-grid" role="grid" aria-label="Monthly P&L calendar">
+    <div class="calendar-grid__weekday">Mo</div>
+    <div class="calendar-grid__weekday">Di</div>
+    <div class="calendar-grid__weekday">Mi</div>
+    <div class="calendar-grid__weekday">Do</div>
+    <div class="calendar-grid__weekday">Fr</div>
+    <div class="calendar-grid__weekday">Sa</div>
+    <div class="calendar-grid__weekday">So</div>
+
+    {# Leading empty cells until the first day lines up with the
+       correct weekday. Python's `date.weekday()` returns 0 for
+       Monday, so we can pad directly. #}
+    {% set first_day = days[0] %}
+    {% for _ in range(first_day.weekday()) %}
+      <div class="calendar-grid__empty" aria-hidden="true"></div>
+    {% endfor %}
+
+    {% for day in days %}
+      {{ calendar_cell(day, cells.get(day), day == today) }}
+    {% endfor %}
+  </div>
+</section>
+
+<style>
+  .calendar-page { max-width: 900px; }
+  .calendar-page__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-4);
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .calendar-page__title { margin: 0; font-size: var(--font-size-title); }
+  .calendar-page__nav {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+  }
+  .calendar-page__nav-link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: var(--font-size-small);
+  }
+  .calendar-page__nav-current {
+    font-family: var(--font-mono, monospace);
+    font-size: var(--font-size-body);
+    color: var(--text-primary);
+  }
+  .calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: var(--space-1);
+  }
+  .calendar-grid__weekday {
+    text-align: center;
+    padding: var(--space-2);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .calendar-grid__empty { min-height: 72px; }
+  .calendar-cell {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding: var(--space-2);
+    min-height: 72px;
+    background-color: var(--bg-surface);
+    text-decoration: none;
+    color: var(--text-primary);
+    border: 1px solid var(--border-subtle);
+    transition: transform var(--transition-fast, 0.15s ease);
+    position: relative;
+  }
+  .calendar-cell:hover { transform: translateY(-1px); border-color: var(--accent); }
+  .calendar-cell--today { border-color: var(--accent); border-width: 2px; }
+  .calendar-cell__date {
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+  }
+  .calendar-cell__pnl {
+    font-size: var(--font-size-body);
+    font-weight: 600;
+    font-family: var(--font-mono, monospace);
+  }
+  .calendar-cell--gain .calendar-cell__pnl { color: var(--color-win, #3fb950); }
+  .calendar-cell--loss .calendar-cell__pnl { color: var(--color-loss, #f85149); }
+  .calendar-cell__count {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+</style>
+{% endblock %}

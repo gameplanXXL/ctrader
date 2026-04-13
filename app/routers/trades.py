@@ -26,7 +26,10 @@ from pydantic import ValidationError as PydanticValidationError
 
 from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
+from app.models.ohlc import Timeframe
 from app.services.expectancy import compute_expectancy_at_entry
+from app.services.mae_mfe import compute_mae_mfe, persist_mae_mfe
+from app.services.ohlc_cache import get_cached_candles
 from app.services.pnl import compute_pnl
 from app.services.r_multiple import compute_r_multiple
 from app.services.strategy_source import list_strategies_for_dropdown
@@ -76,6 +79,27 @@ async def trade_detail_fragment(request: Request, trade_id: int):
     if trade is None:
         raise HTTPException(status_code=404, detail="trade not found")
 
+    # Story 4.3 — lazy MAE/MFE compute on first drilldown render.
+    # Persisted on the trades row so the second load hits NULL guard
+    # instead of re-fetching candles.
+    if (
+        trade.get("mae_mfe_computed_at") is None
+        and trade.get("closed_at") is not None
+        and db_pool is not None
+        and hasattr(db_pool, "acquire")
+    ):
+        try:
+            async with db_pool.acquire() as conn:
+                result = await compute_mae_mfe(conn, trade)
+                await persist_mae_mfe(conn, trade_id, result)
+                if result.available:
+                    trade["mae_price"] = result.mae_price
+                    trade["mfe_price"] = result.mfe_price
+                    trade["mae_dollars"] = result.mae_dollars
+                    trade["mfe_dollars"] = result.mfe_dollars
+        except Exception as exc:  # noqa: BLE001 — graceful degradation
+            logger.warning("mae_mfe.failed", trade_id=trade_id, error=str(exc))
+
     return templates.TemplateResponse(
         request,
         "fragments/trade_detail.html",
@@ -86,6 +110,76 @@ async def trade_detail_fragment(request: Request, trade_id: int):
             "computed_expectancy": compute_expectancy_at_entry(trade),
         },
     )
+
+
+@router.get("/{trade_id}/chart_data", include_in_schema=False)
+async def chart_data(request: Request, trade_id: int):
+    """Story 4.5 — return OHLC candles + entry/exit markers as JSON for
+    the lightweight-charts widget in the drilldown.
+
+    Reads from the `ohlc_candles` cache (Story 4.3). If the cache has
+    no data for this trade's window, returns an empty candle list and
+    the client renders the "Chart-Daten nicht verfuegbar" placeholder
+    (AC #4 / UX-DR55).
+    """
+
+    from fastapi.responses import JSONResponse
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None or not hasattr(db_pool, "acquire"):
+        return JSONResponse({"candles": [], "markers": []})
+
+    async with db_pool.acquire() as conn:
+        trade = await get_trade_detail(conn, trade_id)
+        if trade is None:
+            raise HTTPException(status_code=404, detail="trade not found")
+
+        symbol = trade["symbol"]
+        opened_at = trade["opened_at"]
+        closed_at = trade.get("closed_at") or opened_at
+
+        candles = await get_cached_candles(
+            conn,
+            symbol=symbol,
+            start=opened_at,
+            end=closed_at,
+            timeframe=Timeframe.M1,
+        )
+
+    candle_payload = [
+        {
+            "time": int(c.ts.timestamp()),
+            "open": float(c.open),
+            "high": float(c.high),
+            "low": float(c.low),
+            "close": float(c.close),
+        }
+        for c in candles
+    ]
+
+    markers = []
+    if trade.get("opened_at") is not None:
+        markers.append(
+            {
+                "time": int(trade["opened_at"].timestamp()),
+                "position": "belowBar",
+                "color": "#58a6ff",
+                "shape": "arrowUp",
+                "text": "Entry",
+            }
+        )
+    if trade.get("closed_at") is not None:
+        markers.append(
+            {
+                "time": int(trade["closed_at"].timestamp()),
+                "position": "aboveBar",
+                "color": "#f85149",
+                "shape": "arrowDown",
+                "text": "Exit",
+            }
+        )
+
+    return JSONResponse({"candles": candle_payload, "markers": markers})
 
 
 # ---------------------------------------------------------------------------

@@ -1,16 +1,50 @@
 {% extends "base.html" %}
 {% from "components/trade_row.html" import trade_row %}
+{% from "components/facet_bar.html" import facet_bar %}
+{% from "components/stat_card.html" import stat_card %}
+{% from "components/query_prose.html" import query_prose %}
 
 {% block title %}Journal · ctrader{% endblock %}
 
 {% block content %}
-<section class="journal">
+<section id="journal-main" class="journal">
   <header class="journal__header">
     <h1 class="journal__title">Journal</h1>
     <div class="journal__meta">
       <span class="journal__total tabular">{{ page.total_count }} trades</span>
+      <a class="journal__export" href="/journal/export{% if current_query %}?{{ current_query }}{% endif %}" title="Export as CSV">CSV</a>
+      <button
+        type="button"
+        class="journal__save-preset"
+        title="Save this query as a preset"
+        onclick="savePreset()"
+      >★ Save</button>
+      <a class="journal__calendar-link" href="/journal/calendar">📅 Calendar</a>
     </div>
   </header>
+
+  {# Story 4.2 — hero aggregation block (query prose + stat cards) #}
+  {% if aggregation %}
+    <section class="journal__hero">
+      {{ query_prose(prose_text) }}
+      <div class="journal__hero-grid">
+        {{ stat_card("Trades", aggregation.trade_count, variant="neutral") }}
+        {{ stat_card("Expectancy", aggregation.expectancy_float | format_pnl, sparkline_svg=sparkline_svg, variant=("gain" if aggregation.expectancy_float > 0 else "loss" if aggregation.expectancy_float < 0 else "neutral")) }}
+        {{ stat_card("Winrate", "%.0f%%" | format(aggregation.winrate_pct), variant="neutral") }}
+        {{ stat_card("Drawdown", aggregation.drawdown_float | format_pnl, variant=("loss" if aggregation.drawdown_float < 0 else "neutral")) }}
+      </div>
+    </section>
+  {% endif %}
+
+  {# Story 4.1 — facet bar #}
+  {% if facet_selections %}
+    {{ facet_bar(
+        facet_selections,
+        base_url="/journal",
+        has_any_filter=has_any_filter,
+        reset_href="/journal"
+    ) }}
+  {% endif %}
 
   {% if page.untagged_count > 0 %}
     <a href="?untagged=1" class="untagged-banner" role="status">
@@ -223,5 +257,71 @@
     font-family: var(--font-mono);
     font-size: var(--font-size-small);
   }
+
+  /* Hero block — Story 4.2 */
+  .journal__hero { margin-bottom: var(--space-4); }
+  .journal__hero-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-3);
+  }
+  @media (max-width: 800px) {
+    .journal__hero-grid { grid-template-columns: repeat(2, 1fr); }
+  }
+
+  .journal__meta {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+  }
+  .journal__export,
+  .journal__calendar-link,
+  .journal__save-preset {
+    font-size: var(--font-size-small);
+    color: var(--accent);
+    text-decoration: none;
+    padding: 2px var(--space-2);
+    border: 1px solid var(--border-default);
+    background: transparent;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .journal__export:hover,
+  .journal__calendar-link:hover,
+  .journal__save-preset:hover {
+    border-color: var(--accent);
+  }
 </style>
+
+<script>
+  function savePreset() {
+    var name = window.prompt("Name fuer dieses Query-Preset:");
+    if (!name) return;
+    var params = new URLSearchParams(window.location.search);
+    var filters = {};
+    params.forEach(function (value, key) {
+      if (!filters[key]) filters[key] = [];
+      filters[key].push(value);
+    });
+    fetch("/api/presets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name: name, filters: filters })
+    }).then(function (res) {
+      if (res.ok) {
+        var evt = new CustomEvent("showToast", {
+          detail: { message: "Preset '" + name + "' gespeichert", variant: "success" },
+          bubbles: true
+        });
+        document.body.dispatchEvent(evt);
+      } else {
+        var evt2 = new CustomEvent("showToast", {
+          detail: { message: "Preset speichern fehlgeschlagen", variant: "error" },
+          bubbles: true
+        });
+        document.body.dispatchEvent(evt2);
+      }
+    });
+  }
+</script>
 {% endblock %}

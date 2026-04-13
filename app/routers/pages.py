@@ -13,7 +13,9 @@ endpoints so FastAPI doesn't try to re-evaluate `TemplateResponse`
 That's also why this module does **not** use future-annotations at all.
 """
 
+from datetime import date, datetime
 from pathlib import Path
+from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import RedirectResponse
@@ -21,10 +23,16 @@ from fastapi.templating import Jinja2Templates
 
 from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
+from app.services.aggregation import compute_aggregation
+from app.services.csv_export import export_trades_csv
+from app.services.daily_pnl import get_daily_pnl, iter_month_days
 from app.services.expectancy import compute_expectancy_at_entry
+from app.services.facets import render_facets
 from app.services.mistakes_report import MistakeRow, top_n_mistakes
 from app.services.pnl import compute_pnl
+from app.services.query_prose import render_query_prose
 from app.services.r_multiple import compute_r_multiple
+from app.services.sparkline import render_sparkline_svg
 from app.services.taxonomy import get_taxonomy
 from app.services.trade_query import DEFAULT_PAGE_SIZE, get_trade_detail, list_trades
 from app.services.trigger_prose import render_mistake_tags, render_trigger_prose
@@ -45,6 +53,83 @@ for filter_name, filter_func in JINJA_FILTERS.items():
 # expansion prefill also renders trigger_spec_readable correctly.
 templates.env.globals["render_trigger_prose"] = render_trigger_prose
 templates.env.globals["render_mistake_tags"] = render_mistake_tags
+
+
+# ---------------------------------------------------------------------------
+# Story 4.1 — facet URL helpers
+# ---------------------------------------------------------------------------
+
+# Facets we recognize in the URL query string. Anything else is ignored
+# so bots / typos don't crash the page.
+_FACET_KEYS = {
+    "asset_class",
+    "broker",
+    "horizon",
+    "strategy",
+    "trigger_type",
+    "followed",
+    "confidence_band",
+    "regime_tag",
+}
+
+
+def _parse_facet_query(request: Request) -> dict[str, list[str]]:
+    """Parse the request's query string into the facet-framework dict shape.
+
+    Supports both repeated keys (`?asset_class=stock&asset_class=crypto`)
+    and comma-separated lists (`?asset_class=stock,crypto`) so pasted
+    URLs from the command palette round-trip cleanly.
+    """
+
+    facets: dict[str, list[str]] = {}
+    for key in _FACET_KEYS:
+        raw_values = request.query_params.getlist(key)
+        flat: list[str] = []
+        for raw in raw_values:
+            for value in raw.split(","):
+                value = value.strip()
+                if value:
+                    flat.append(value)
+        if flat:
+            facets[key] = flat
+    return facets
+
+
+def _build_facet_href(base_url: str, facet_name: str, value: str, currently_selected: bool):
+    """Return the URL that toggles `value` inside `facet_name`."""
+
+    def _href(request: Request | None = None) -> str:
+        # The template wires this into jinja2, so we return a callable
+        # that the closure can access via `build_facet_href(...)`. The
+        # real implementation is in `_facet_href_builder` below.
+        return ""
+
+    return _href
+
+
+def _facet_href_builder(current_facets: dict[str, list[str]], base_url: str = "/journal"):
+    """Return a Jinja-friendly callable for building toggle URLs."""
+
+    def _build(base: str, facet_name: str, value_id: str, selected: bool) -> str:
+        next_facets = {k: list(v) for k, v in current_facets.items()}
+        current = next_facets.get(facet_name, [])
+        if selected:
+            current = [v for v in current if v != value_id]
+        else:
+            if value_id not in current:
+                current = list(current) + [value_id]
+        if current:
+            next_facets[facet_name] = current
+        else:
+            next_facets.pop(facet_name, None)
+        query_items: list[tuple[str, str]] = []
+        for name, values in next_facets.items():
+            for v in values:
+                query_items.append((name, v))
+        qs = urlencode(query_items)
+        return f"{base}?{qs}" if qs else base
+
+    return _build
 
 
 def _render(request: Request, page: str):
@@ -72,28 +157,55 @@ async def journal_page(
         default=None,
         description="Trade ID to render expanded inline (Story 2.4 AC #4 — bookmarkable)",
     ),
+    date_filter: str | None = Query(
+        default=None,
+        alias="date",
+        description="Story 4.4 — filter to a single day (YYYY-MM-DD)",
+    ),
 ):
-    """Journal start page — paginated trade list + untagged counter.
+    """Journal start page — paginated trade list, facets, and hero block.
 
-    If `?expand=<trade_id>` is present, the trade's drilldown context
-    is fetched and exposed to the template so the journal can pre-fill
-    the matching expansion-row at first render. Bookmarkable URL,
-    Story 2.4 AC #4 — code-review M11 fix.
+    Story 4.1 adds facet parsing: every known facet key in the query
+    string is translated into a `dict[str, list[str]]` and passed to
+    both `list_trades` and `render_facets` so chip counts reflect the
+    current drill-in.
+
+    Story 4.2 adds the hero aggregation block + query prose.
     """
 
     db_pool = getattr(request.app.state, "db_pool", None)
+    facets = _parse_facet_query(request)
+
+    # Calendar-day filter (Story 4.4). Invalid dates silently fall back
+    # to "no filter" so a typo doesn't 500 the page.
+    trade_date: date | None = None
+    if date_filter:
+        try:
+            trade_date = datetime.strptime(date_filter, "%Y-%m-%d").date()
+        except ValueError:
+            trade_date = None
+
     journal_page_data = None
     expanded_trade = None
+    facet_selections: list = []
+    aggregation = None
+    sparkline_svg = ""
 
     if db_pool is not None and hasattr(db_pool, "acquire"):
         try:
             async with db_pool.acquire() as conn:
-                journal_page_data = await list_trades(conn, page=page)
+                journal_page_data = await list_trades(
+                    conn, page=page, facets=facets, trade_date=trade_date
+                )
                 if expand is not None:
                     expanded_trade = await get_trade_detail(conn, expand)
+                facet_selections = await render_facets(conn, facets)
+                aggregation = await compute_aggregation(conn, facets)
+                sparkline_svg = render_sparkline_svg(
+                    aggregation.sparkline_points,
+                    aria_label="Cumulative P&L trend",
+                )
         except Exception as exc:  # noqa: BLE001 — keep the page rendering
-            # Log loudly so DB issues don't disappear behind an empty
-            # journal — code-review M4 fix.
             logger.warning(
                 "journal_page.db_error",
                 error=str(exc),
@@ -101,6 +213,8 @@ async def journal_page(
             )
             journal_page_data = None
             expanded_trade = None
+            facet_selections = []
+            aggregation = None
 
     if journal_page_data is None:
         from app.services.trade_query import TradeListPage
@@ -122,6 +236,19 @@ async def journal_page(
             "computed_expectancy": compute_expectancy_at_entry(expanded_trade),
         }
 
+    # Expose the facet-href builder to the template so facet_bar can
+    # compute toggle URLs for every chip.
+    templates.env.globals["build_facet_href"] = _facet_href_builder(facets, "/journal")
+
+    # Current URL query string (minus `page` / `expand`) — the hero
+    # block's CSV link re-uses it, and the "Save preset" JS reads it
+    # from `window.location`.
+    query_items: list[tuple[str, str]] = []
+    for name, values in facets.items():
+        for v in values:
+            query_items.append((name, v))
+    current_query = urlencode(query_items)
+
     return templates.TemplateResponse(
         request,
         "pages/journal.html",
@@ -130,7 +257,96 @@ async def journal_page(
             "page": journal_page_data,
             "expand_id": expand,
             "expansion": expansion_context,
+            "facet_selections": facet_selections,
+            "has_any_filter": any(facets.values()),
+            "aggregation": aggregation,
+            "sparkline_svg": sparkline_svg,
+            "prose_text": render_query_prose(facets),
+            "current_query": current_query,
         },
+    )
+
+
+@router.get("/journal/calendar", include_in_schema=False)
+async def calendar_page(
+    request: Request,
+    year: int = Query(default=None),
+    month: int = Query(default=None),
+):
+    """Story 4.4 — monthly P&L calendar.
+
+    Defaults to the current UTC month. Clicking a cell links back to
+    `/journal?date=YYYY-MM-DD`.
+    """
+
+    now = datetime.utcnow()
+    if year is None:
+        year = now.year
+    if month is None:
+        month = now.month
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    cells: dict = {}
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                cells = await get_daily_pnl(conn, year=year, month=month)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("calendar_page.db_error", error=str(exc))
+            cells = {}
+
+    days = iter_month_days(year, month)
+    today = now.date()
+
+    prev_year = year if month > 1 else year - 1
+    prev_month = month - 1 if month > 1 else 12
+    next_year = year if month < 12 else year + 1
+    next_month = month + 1 if month < 12 else 1
+
+    return templates.TemplateResponse(
+        request,
+        "pages/calendar.html",
+        {
+            "active_route": "journal",
+            "year": year,
+            "month": month,
+            "days": days,
+            "cells": cells,
+            "today": today,
+            "prev_year": prev_year,
+            "prev_month": prev_month,
+            "next_year": next_year,
+            "next_month": next_month,
+        },
+    )
+
+
+@router.get("/journal/export", include_in_schema=False)
+async def journal_csv_export(request: Request):
+    """Story 4.7 — download the current facet-filtered trade list as CSV.
+
+    Returns `text/csv` with a UTF-8 BOM so Excel auto-detects encoding.
+    """
+
+    from fastapi.responses import Response
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    facets = _parse_facet_query(request)
+
+    body = ""
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                body = await export_trades_csv(conn, facets)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("journal_export.db_error", error=str(exc))
+            body = "\ufeff"  # BOM only
+
+    filename = f"ctrader-trades-{datetime.utcnow().strftime('%Y-%m-%d')}.csv"
+    return Response(
+        content=body,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
     )
 
 

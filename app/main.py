@@ -27,6 +27,7 @@ from app.config import settings
 from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
+from app.routers import api as api_router
 from app.routers import debug as debug_router
 from app.routers import pages as pages_router
 from app.routers import trades as trades_router
@@ -141,6 +142,9 @@ app.include_router(pages_router.router)
 
 # Trade-detail fragment endpoints (Story 2.4 — HTMX inline expansion).
 app.include_router(trades_router.router)
+
+# JSON API — command palette + query presets (Epic 4).
+app.include_router(api_router.router)
 
 # Debug routes — only mounted in development. /debug/mcp-tools exposes
 # the live MCP handshake response so Chef can verify it from a browser.

@@ -1,12 +1,48 @@
 {#
-  stat_card(label, value, trend=None, variant=None)
-  Tier-1 component, full implementation in Epic 2 (Story 2.3).
-  Variants: None | "gain" | "loss"
+  stat_card(label, value, sparkline_svg=None, variant=None)
+  Story 4.2 — hero metric card.
+  Variants: neutral | gain | loss
 #}
-{% macro stat_card(label, value, trend=none, variant=none) %}
-<div class="stat-card stat-card--{{ variant or 'neutral' }}" data-numeric>
+{% macro stat_card(label, value, sparkline_svg=none, variant="neutral") %}
+<div class="stat-card stat-card--{{ variant }}" data-numeric>
   <span class="stat-card__label">{{ label }}</span>
-  <span class="stat-card__value">{{ value }}</span>
-  {% if trend is not none %}<span class="stat-card__trend">{{ trend }}</span>{% endif %}
+  <span class="stat-card__value tabular">{{ value }}</span>
+  {% if sparkline_svg %}
+    <div class="stat-card__sparkline" aria-hidden="false">
+      {{ sparkline_svg | safe }}
+    </div>
+  {% endif %}
 </div>
 {% endmacro %}
+
+<style>
+  .stat-card {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  .stat-card__label {
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .stat-card__value {
+    font-size: 28px;
+    font-family: var(--font-mono, monospace);
+    color: var(--text-primary);
+    line-height: 1.1;
+  }
+  .stat-card--gain .stat-card__value { color: var(--color-win, #3fb950); }
+  .stat-card--loss .stat-card__value { color: var(--color-loss, #f85149); }
+  .stat-card__sparkline {
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+    opacity: 0.7;
+  }
+  .stat-card--gain .stat-card__sparkline { color: var(--color-win, #3fb950); }
+  .stat-card--loss .stat-card__sparkline { color: var(--color-loss, #f85149); }
+</style>
