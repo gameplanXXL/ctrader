@@ -19,10 +19,12 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace asyncpg pool creation with an AsyncMock for unit tests.
+    """Replace asyncpg + migrations with AsyncMocks for unit tests.
 
-    The lifespan still exercises `create_pool` / `close_pool` but neither
-    actually touches a database. This keeps the smoke tests hermetic.
+    The lifespan still exercises `run_migrations`, `create_pool` and
+    `close_pool` but none of them actually touch a database. This keeps
+    the smoke tests hermetic — real DB integration tests live in
+    `tests/integration/` and use testcontainers.
     """
 
     fake_pool = AsyncMock(name="asyncpg.Pool")
@@ -33,8 +35,12 @@ def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_close_pool(_pool: AsyncMock) -> None:
         return None
 
+    async def _fake_run_migrations() -> list[str]:
+        return []
+
     monkeypatch.setattr(app_module, "create_pool", _fake_create_pool)
     monkeypatch.setattr(app_module, "close_pool", _fake_close_pool)
+    monkeypatch.setattr(app_module, "run_migrations", _fake_run_migrations)
 
 
 @pytest.fixture

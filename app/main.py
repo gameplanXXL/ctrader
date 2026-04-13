@@ -20,13 +20,19 @@ from fastapi.responses import JSONResponse
 
 from app import __version__
 from app.config import settings
+from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-    """Startup / shutdown orchestration."""
+    """Startup / shutdown orchestration.
+
+    Order matters: configure logging first (so every subsequent line is
+    JSON), then run pending migrations against the target DB, then open
+    the long-lived asyncpg pool. Teardown runs in reverse.
+    """
 
     configure_logging()
     logger = get_logger(__name__)
@@ -37,6 +43,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         host=settings.host,
         port=settings.port,
     )
+
+    # Apply any pending schema migrations before the pool goes live. This
+    # opens and closes its own one-shot connection so we never accidentally
+    # run DDL through a pooled worker.
+    applied = await run_migrations()
+    if applied:
+        logger.info("app.migrations_applied", versions=applied)
 
     app.state.db_pool = await create_pool()
     try:
