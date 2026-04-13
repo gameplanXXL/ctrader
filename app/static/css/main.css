@@ -1,0 +1,107 @@
+/* ctrader — Tailwind v4 source file.
+ *
+ * Compiled via pytailwindcss (Tailwind v4 standalone binary).
+ *
+ * Tailwind v4 uses CSS-based theme configuration via `@theme` instead of
+ * a `tailwind.config.js` file. All color/spacing/typography tokens live
+ * in `design-tokens.css`; this file just imports Tailwind and registers
+ * a few component-level classes that server-rendered templates use.
+ */
+
+@import "tailwindcss";
+@import "./design-tokens.css";
+
+/* --- Content scanning ----------------------------------------------
+ * Tell Tailwind v4 which files to scan for class names when generating
+ * utilities. Equivalent to `content: [...]` in a v3 config.
+ */
+@source "../../templates/**/*.html";
+@source "../js/**/*.js";
+
+/* --- Theme ----------------------------------------------------------
+ * Register our CSS custom properties as Tailwind theme values so
+ * utility classes like `bg-bg-void`, `text-text-primary`, `font-mono`
+ * map onto them. `@theme inline` skips the defaults-merge pass.
+ */
+@theme {
+  --color-bg-void: #0d1117;
+  --color-bg-chrome: #161b22;
+  --color-bg-surface: #21262d;
+  --color-bg-elevated: #30363d;
+
+  --color-text-primary: #f0f6fc;
+  --color-text-secondary: #c9d1d9;
+  --color-text-muted: #8b949e;
+
+  --color-accent: #58a6ff;
+
+  --color-pnl-green: #3fb950;
+  --color-pnl-red: #f85149;
+  --color-status-green: #3fb950;
+  --color-status-yellow: #d29922;
+  --color-status-red: #f85149;
+
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+}
+
+/* --- Base layer ----------------------------------------------------- */
+html,
+body {
+  background-color: var(--bg-void);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.tabular,
+[data-numeric] {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- Component classes (no @apply — v4 discourages it for SSR) ------ */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  border: 1px solid var(--border-default);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
+  transition: background-color var(--transition-base);
+  cursor: pointer;
+}
+.btn:hover {
+  background-color: var(--bg-elevated);
+}
+.btn-primary {
+  background-color: var(--accent);
+  color: var(--bg-void);
+  border-color: var(--accent);
+}
+.btn-primary:hover {
+  filter: brightness(1.1);
+}
+
+.nav-link {
+  display: inline-block;
+  padding: 8px 12px;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: color var(--transition-base);
+  text-decoration: none;
+}
+.nav-link:hover {
+  color: var(--text-primary);
+}
+.nav-link[aria-current="page"] {
+  color: var(--accent);
+}

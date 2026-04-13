@@ -1,7 +1,10 @@
 # ctrader — multi-stage build.
 #
 # Stage 1: uv base image with deps synced into .venv.
-# Stage 2: slim runtime with only the venv and app source.
+# Stage 2: tailwind-build stage using the venv's `tailwindcss` binary
+#          (installed by pytailwindcss during uv sync) to produce the
+#          compiled CSS without Node.js.
+# Stage 3: slim runtime with the venv, app source, and compiled CSS.
 #
 # NFR-S2: app binds to 127.0.0.1:8000 inside the container; docker-compose
 # publishes it to 127.0.0.1:8000 on the host.
@@ -26,7 +29,28 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # ---------------------------------------------------------------------------
-# Stage 2 — runtime
+# Stage 2 — tailwind build
+# ---------------------------------------------------------------------------
+FROM builder AS tailwind-build
+
+WORKDIR /app
+
+# Copy the minimum files tailwind needs to scan: templates, design
+# tokens, main.css. Skip app code / tests / migrations so a trivial
+# template change doesn't bust the asyncpg-install layer above.
+COPY app/templates ./app/templates
+COPY app/static/css ./app/static/css
+COPY app/static/js ./app/static/js
+
+# Compile Tailwind v4 via pytailwindcss (downloads the standalone binary
+# on first run; cached in subsequent layers).
+RUN /app/.venv/bin/tailwindcss \
+        -i app/static/css/main.css \
+        -o app/static/css/compiled.css \
+        --minify
+
+# ---------------------------------------------------------------------------
+# Stage 3 — runtime
 # ---------------------------------------------------------------------------
 FROM python:3.12-slim-bookworm AS runtime
 
@@ -41,8 +65,14 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
-# App source.
+# App source + taxonomy + migrations.
 COPY app/ ./app/
+COPY taxonomy.yaml ./taxonomy.yaml
+COPY migrations ./migrations
+
+# Compiled CSS from the tailwind-build stage overwrites the placeholder
+# so the runtime image always carries the minified asset.
+COPY --from=tailwind-build /app/app/static/css/compiled.css /app/app/static/css/compiled.css
 
 # Data directories (log rotation, mcp snapshots). docker-compose mounts
 # these as volumes so logs survive container restarts.

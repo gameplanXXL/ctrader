@@ -72,6 +72,9 @@ data/pgdata/
 data/logs/
 data/mcp-snapshots/
 
+# Tailwind-compiled CSS — regenerated on every build, not committed
+app/static/css/compiled.css
+
 # Logs
 logs/
 *.log

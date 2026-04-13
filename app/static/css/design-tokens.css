@@ -1,0 +1,97 @@
+/* ctrader Design Tokens — Dark Cockpit.
+ *
+ * Source of truth for all colors, typography, and spacing. Tailwind
+ * `tailwind.config.js` reads these via CSS-Custom-Properties so both
+ * Tailwind utility classes and hand-written CSS share the same values.
+ *
+ * UX-DR1–9 (UX Spec): "Informations-Dichte-Oberflaeche im Stil eines
+ * Cockpits — dicht, praezise, mit harten Navigations-Garantien."
+ */
+
+:root {
+  /* ---------- Background layers (four-step depth) ------------------- */
+  --bg-void: #0d1117; /* Outermost, contrast 16.4:1 vs text-primary (AAA) */
+  --bg-chrome: #161b22; /* Top-bar / navigation chrome */
+  --bg-surface: #21262d; /* Panels, cards, table rows */
+  --bg-elevated: #30363d; /* Hovered rows, raised elements */
+
+  /* ---------- Foreground text --------------------------------------- */
+  --text-primary: #f0f6fc; /* Body text */
+  --text-secondary: #c9d1d9; /* Labels, muted but still readable */
+  --text-muted: #8b949e; /* Timestamps, placeholder, empty states */
+
+  /* ---------- Accent / brand ---------------------------------------- */
+  --accent: #58a6ff; /* Primary action, active nav, selected state */
+  --accent-dim: color-mix(in srgb, var(--accent) 15%, transparent);
+
+  /* ---------- P&L colors (trading-specific, not "success/error") ---- */
+  --pnl-green: #3fb950;
+  --pnl-red: #f85149;
+
+  /* ---------- Status signal colors (Risk Gate, Health, Kill-Switch) - */
+  --status-green: #3fb950;
+  --status-yellow: #d29922;
+  --status-red: #f85149;
+
+  /* ---------- Border tokens ----------------------------------------- */
+  --border-default: #30363d;
+  --border-subtle: #21262d;
+  --border-accent: var(--accent);
+
+  /* ---------- Typography scale (11 / 12 / 14 / 16 / 20 / 28 px) ----- */
+  --font-size-label: 11px; /* Uppercase table headers, labels */
+  --font-size-small: 12px; /* Secondary text */
+  --font-size-body: 14px; /* Default body */
+  --font-size-section: 16px; /* Section headers */
+  --font-size-title: 20px; /* Page titles */
+  --font-size-hero: 28px; /* Hero metrics, P&L callouts */
+
+  /* ---------- Font families ----------------------------------------- */
+  /* Inter for sans (labels, nav, prose).
+   * JetBrains Mono for all numeric values — tabular alignment is the
+   * whole reason. System fallbacks cover dev before font files ship.
+   */
+  --font-sans:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  --font-mono:
+    "JetBrains Mono", "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+
+  /* ---------- Spacing grid (4 / 8 / 12 / 16 / 24 / 32 / 48 px) ------ */
+  /* No 5/7/9/10/11. Ever. */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+
+  /* ---------- Layout bounds ----------------------------------------- */
+  --content-max-width: 1440px;
+
+  /* ---------- Transition / interaction tokens ----------------------- */
+  --transition-fast: 100ms ease-out;
+  --transition-base: 150ms ease-out;
+  --focus-outline: 2px solid var(--accent);
+}
+
+/* ---------- Interactive states --------------------------------------
+ * Apply via Tailwind utilities (hover:bg-[var(--bg-elevated)]) or
+ * directly on components. UX-DR6.
+ */
+
+*:focus-visible {
+  outline: var(--focus-outline);
+  outline-offset: 2px;
+}
+
+[aria-disabled="true"],
+:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+[aria-selected="true"] {
+  background-color: var(--accent-dim);
+}
