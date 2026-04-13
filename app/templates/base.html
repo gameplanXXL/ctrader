@@ -18,6 +18,35 @@
 </head>
 <body>
   {% include "_topbar.html" %}
+
+  {# Story 5.3 — MCP staleness banner. Injected by every page route
+     via the `mcp_agents` context variable. If all agents are fresh
+     (severity=ok) the macro renders an invisible swap target so
+     HTMX polling can replace it on state change without the banner
+     flashing in and out. Story 5.4 drift banner slots in next to it. #}
+  {% if mcp_agents is defined %}
+    {% from "components/staleness_banner.html" import staleness_banner %}
+    {{ staleness_banner(mcp_agents) }}
+  {% endif %}
+  {% if contract_drift is defined and contract_drift %}
+    <div class="contract-drift-banner" role="alert" aria-live="assertive">
+      <span aria-hidden="true">⚠</span>
+      <strong>MCP Contract Drift</strong>
+      <span class="contract-drift-banner__meta">
+        {{ contract_drift.run_at | format_time }} · Snapshot
+        <code>{{ contract_drift.snapshot_version }}</code>
+      </span>
+      <span class="contract-drift-banner__details">
+        {% set added = contract_drift.drift_details.get("added") or [] %}
+        {% set removed = contract_drift.drift_details.get("removed") or [] %}
+        {% set changed = contract_drift.drift_details.get("changed") or [] %}
+        {% if added %}+{{ added | length }} neu{% endif %}
+        {% if removed %} −{{ removed | length }} entfernt{% endif %}
+        {% if changed %} Δ{{ changed | length }} geändert{% endif %}
+      </span>
+    </div>
+  {% endif %}
+
   <main class="ctrader-main">
     {% block content %}{% endblock %}
   </main>
@@ -283,6 +312,27 @@
       margin: 0 auto;
       padding: var(--space-6, 24px);
     }
+
+    /* Story 5.4 contract-drift banner — yellow, non-blocking. */
+    .contract-drift-banner {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: var(--space-3);
+      padding: var(--space-2) var(--space-4);
+      background-color: rgba(245, 158, 11, 0.15);
+      border-left: 4px solid var(--status-yellow, #f59e0b);
+      color: var(--text-primary);
+      font-size: var(--font-size-small);
+    }
+    .contract-drift-banner code {
+      font-family: var(--font-mono, monospace);
+      font-size: 11px;
+      padding: 1px 4px;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .contract-drift-banner__meta { color: var(--text-muted); }
+    .contract-drift-banner__details { color: var(--text-secondary); }
   </style>
 </body>
 </html>

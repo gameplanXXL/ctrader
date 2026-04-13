@@ -28,10 +28,13 @@ from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
 from app.models.ohlc import Timeframe
 from app.services.expectancy import compute_expectancy_at_entry
+from app.services.fundamental import get_fundamental
+from app.services.fundamental_snapshot import get_latest_snapshot
 from app.services.mae_mfe import compute_mae_mfe, persist_mae_mfe
 from app.services.ohlc_cache import get_cached_candles
 from app.services.pnl import compute_pnl
 from app.services.r_multiple import compute_r_multiple
+from app.services.staleness import format_staleness
 from app.services.strategy_source import list_strategies_for_dropdown
 from app.services.tagging import TradeNotFoundError, TradeNotTaggableError, tag_trade
 from app.services.taxonomy import get_taxonomy
@@ -100,6 +103,29 @@ async def trade_detail_fragment(request: Request, trade_id: int):
         except Exception as exc:  # noqa: BLE001 — graceful degradation
             logger.warning("mae_mfe.failed", trade_id=trade_id, error=str(exc))
 
+    # Story 5.2 — fundamental side-by-side. Historical snapshot from
+    # `fundamental_snapshots` (captured on live-sync) + live assessment
+    # via the Story 5.1 fundamental service. Both paths are best-effort
+    # and NULL-safe: a missing snapshot OR a missing MCP client
+    # renders graceful empty-state in the template.
+    historical_snapshot = None
+    live_fundamental = None
+    live_staleness = None
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                historical_snapshot = await get_latest_snapshot(conn, trade_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("fundamental.history_failed", trade_id=trade_id, error=str(exc))
+
+    mcp_client = getattr(request.app.state, "mcp_client", None)
+    try:
+        live_fundamental = await get_fundamental(trade["symbol"], trade["asset_class"], mcp_client)
+        if live_fundamental is not None:
+            live_staleness = format_staleness(live_fundamental.cached_at)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("fundamental.live_failed", trade_id=trade_id, error=str(exc))
+
     return templates.TemplateResponse(
         request,
         "fragments/trade_detail.html",
@@ -108,6 +134,9 @@ async def trade_detail_fragment(request: Request, trade_id: int):
             "computed_pnl": compute_pnl(trade),
             "computed_r_multiple": compute_r_multiple(trade),
             "computed_expectancy": compute_expectancy_at_entry(trade),
+            "historical_snapshot": historical_snapshot,
+            "live_fundamental": live_fundamental,
+            "live_staleness": live_staleness,
         },
     )
 

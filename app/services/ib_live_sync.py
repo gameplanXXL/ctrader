@@ -7,18 +7,27 @@ is the historical-batch path; this module is the real-time path.
 Reconciliation against Flex (FR5: Flex is source-of-truth) lives in
 `app.services.ib_reconcile` and runs on a schedule that Story 12.1
 will register with APScheduler.
+
+Story 5.2 hook: after a new trade row lands, the handler
+fire-and-forgets a fundamental snapshot capture so the drilldown
+can later show "damals vs jetzt" side-by-side. The capture is
+wrapped in `asyncio.create_task` so a slow MCP call never blocks
+the live-sync loop.
 """
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 import asyncpg
 
+from app.clients.mcp import MCPClient
 from app.logging import get_logger
 from app.models.trade import AssetClass, TradeIn, TradeSide, TradeSource
+from app.services.fundamental_snapshot import capture_fundamental_snapshot
 from app.services.ib_flex_import import upsert_trade
 
 logger = get_logger(__name__)
@@ -143,7 +152,13 @@ def execution_to_trade(trade_event: Any) -> TradeIn | None:
     )
 
 
-async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
+async def handle_execution(
+    conn: asyncpg.Connection,
+    trade_event: Any,
+    *,
+    mcp_client: MCPClient | None = None,
+    db_pool: Any = None,
+) -> bool:
     """Process one ib_async Trade event → upsert into trades table.
 
     Returns True if a new row was inserted, False if an existing row
@@ -153,6 +168,11 @@ async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
     persisted. Now uses `upsert_trade` so additional fills enrich
     the existing row (quantity, fees, weighted price are recomputed
     from the full fills list before each call by `execution_to_trade`).
+
+    Story 5.2: on a newly-inserted trade, schedule a fundamental
+    snapshot capture. The capture runs in its own task with its own
+    DB connection from the pool so the live-sync handler can return
+    immediately.
     """
 
     trade_in = execution_to_trade(trade_event)
@@ -174,4 +194,46 @@ async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
         perm_id=trade_in.perm_id,
         action="inserted" if inserted else "updated",
     )
+
+    if inserted and mcp_client is not None and db_pool is not None:
+        asyncio.create_task(
+            _capture_snapshot_fire_and_forget(
+                db_pool=db_pool,
+                trade_id=trade_id,
+                symbol=trade_in.symbol,
+                asset_class=trade_in.asset_class.value,
+                mcp_client=mcp_client,
+            )
+        )
+
     return inserted
+
+
+async def _capture_snapshot_fire_and_forget(
+    *,
+    db_pool: Any,
+    trade_id: int,
+    symbol: str,
+    asset_class: str,
+    mcp_client: MCPClient,
+) -> None:
+    """Wrapper task: acquire a fresh connection from the pool and
+    call `capture_fundamental_snapshot`. Never raises — any failure
+    is logged inside the snapshot service."""
+
+    try:
+        async with db_pool.acquire() as snap_conn:
+            await capture_fundamental_snapshot(
+                snap_conn,
+                trade_id=trade_id,
+                symbol=symbol,
+                asset_class=asset_class,
+                mcp_client=mcp_client,
+            )
+    except Exception as exc:  # noqa: BLE001 — fire-and-forget
+        logger.warning(
+            "fundamental_snapshot.task_failed",
+            trade_id=trade_id,
+            symbol=symbol,
+            error=str(exc),
+        )

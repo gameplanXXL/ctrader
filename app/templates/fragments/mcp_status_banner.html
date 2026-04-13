@@ -1,0 +1,9 @@
+{#
+  Story 5.3 — HTMX polling fragment for /api/mcp-status.
+
+  Identical shape to the banner rendered inline in base.html, but
+  wrapped in just the banner element so the outerHTML swap lands
+  cleanly on `#staleness-banner`.
+#}
+{% from "components/staleness_banner.html" import staleness_banner %}
+{{ staleness_banner(mcp_agents) }}

@@ -15,6 +15,7 @@ That's also why this module does **not** use future-annotations at all.
 
 from datetime import UTC, date, datetime
 from pathlib import Path
+from typing import Any
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Query, Request
@@ -28,6 +29,8 @@ from app.services.csv_export import export_trades_csv
 from app.services.daily_pnl import get_daily_pnl, iter_month_days
 from app.services.expectancy import compute_expectancy_at_entry
 from app.services.facets import render_facets
+from app.services.mcp_contract_test import get_latest_contract_test
+from app.services.mcp_health import get_all_agents
 from app.services.mistakes_report import MistakeRow, top_n_mistakes
 from app.services.pnl import compute_pnl
 from app.services.query_prose import render_query_prose
@@ -132,13 +135,48 @@ def _facet_href_builder(current_facets: dict[str, list[str]], base_url: str = "/
     return _build
 
 
-def _render(request: Request, page: str):
-    """Convenience wrapper: render a page template with active-route context."""
+async def _base_context(request: Request) -> dict[str, Any]:
+    """Shared base-template context — MCP health + latest contract drift.
 
+    Story 5.3 + 5.4: every page route merges this into its own
+    context dict so `base.html` can render the staleness and drift
+    banners without each route having to plumb them manually.
+    Returns a context with safe defaults if the DB pool is down.
+    """
+
+    context: dict[str, Any] = {
+        "mcp_agents": get_all_agents(),
+        "contract_drift": None,
+    }
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is None or not hasattr(db_pool, "acquire"):
+        return context
+    try:
+        async with db_pool.acquire() as conn:
+            latest = await get_latest_contract_test(conn)
+        if latest is not None and latest.has_drift:
+            context["contract_drift"] = latest
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("pages.contract_drift_probe_failed", error=str(exc))
+    return context
+
+
+def _render(request: Request, page: str, **extra: Any):
+    """Convenience wrapper: render a page template with active-route context.
+
+    Extra context is merged on top of the defaults.
+    """
+
+    context: dict[str, Any] = {
+        "active_route": page,
+        "mcp_agents": get_all_agents(),
+        "contract_drift": None,
+    }
+    context.update(extra)
     return templates.TemplateResponse(
         request,
         f"pages/{page}.html",
-        {"active_route": page},
+        context,
     )
 
 
@@ -253,9 +291,8 @@ async def journal_page(
             query_items.append((name, v))
     current_query = urlencode(query_items)
 
-    return templates.TemplateResponse(
-        request,
-        "pages/journal.html",
+    context = await _base_context(request)
+    context.update(
         {
             "active_route": "journal",
             "page": journal_page_data,
@@ -268,8 +305,9 @@ async def journal_page(
             "prose_text": render_query_prose(facets),
             "current_query": current_query,
             "build_facet_href": build_facet_href,
-        },
+        }
     )
+    return templates.TemplateResponse(request, "pages/journal.html", context)
 
 
 @router.get("/journal/calendar", include_in_schema=False)
@@ -312,9 +350,8 @@ async def calendar_page(
     next_year = year if month < 12 else year + 1
     next_month = month + 1 if month < 12 else 1
 
-    return templates.TemplateResponse(
-        request,
-        "pages/calendar.html",
+    context = await _base_context(request)
+    context.update(
         {
             "active_route": "journal",
             "year": year,
@@ -326,8 +363,9 @@ async def calendar_page(
             "prev_month": prev_month,
             "next_year": next_year,
             "next_month": next_month,
-        },
+        }
     )
+    return templates.TemplateResponse(request, "pages/calendar.html", context)
 
 
 @router.get("/journal/export", include_in_schema=False)
@@ -399,9 +437,8 @@ async def mistakes_report_page(
     taxonomy = get_taxonomy()
     tag_labels = {entry.id: (entry.label or entry.id) for entry in taxonomy.mistake_tags}
 
-    return templates.TemplateResponse(
-        request,
-        "pages/mistakes_report.html",
+    context = await _base_context(request)
+    context.update(
         {
             "active_route": "journal",
             "rows": rows,
@@ -410,8 +447,9 @@ async def mistakes_report_page(
             "window_start": window_start,
             "window_end": window_end,
             "total_trades": total_trades or 0,
-        },
+        }
     )
+    return templates.TemplateResponse(request, "pages/mistakes_report.html", context)
 
 
 @router.get("/strategies", include_in_schema=False)

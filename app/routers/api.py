@@ -1,4 +1,5 @@
-"""JSON API routes — command palette, query presets (Stories 4.6, 4.7).
+"""JSON API routes — command palette, query presets (Stories 4.6, 4.7),
+MCP health status (Story 5.3), on-demand contract test (Story 5.4).
 
 These endpoints return plain JSON (not HTML fragments), so they sit
 in their own router instead of sharing `trades.py` or `pages.py`.
@@ -6,19 +7,31 @@ in their own router instead of sharing `trades.py` or `pages.py`.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel, Field
 
+from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
 from app.services.command_palette import build_palette_items
+from app.services.mcp_contract_test import run_contract_test
+from app.services.mcp_health import get_all_agents
 from app.services.query_presets import list_presets, save_preset
 
 logger = get_logger(__name__)
 
 router = APIRouter(prefix="/api", tags=["api"])
+
+# Share a Jinja env for the tiny HTML fragments /api/mcp-status
+# returns to the staleness-banner HTMX polling.
+_TEMPLATES_DIR = Path(__file__).resolve().parents[1] / "templates"
+_templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
+for _name, _fn in JINJA_FILTERS.items():
+    _templates.env.filters[_name] = _fn
 
 
 @router.get("/command-palette")
@@ -123,6 +136,40 @@ async def save_query_preset(request: Request, payload: PresetPayload) -> JSONRes
             "created_at": preset.created_at.isoformat(),
         }
     )
+
+
+@router.get("/mcp-status", include_in_schema=False)
+async def mcp_status_fragment(request: Request):
+    """Story 5.3 — HTMX polling target for the staleness banner.
+
+    Returns the rendered banner HTML (or an empty stub when nothing
+    is degraded). Polling cadence is 60s, configured in the macro.
+    """
+
+    agents = get_all_agents()
+    return _templates.TemplateResponse(
+        request,
+        "fragments/mcp_status_banner.html",
+        {"mcp_agents": agents},
+    )
+
+
+@router.post("/mcp-contract-test", include_in_schema=False)
+async def run_mcp_contract_test(request: Request) -> JSONResponse:
+    """Story 5.4 — on-demand contract test runner.
+
+    Intended for the settings page + CLI path. Story 12.1's scheduler
+    will call the same `run_contract_test()` function nightly.
+    """
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    mcp_client = getattr(request.app.state, "mcp_client", None)
+    if db_pool is None or not hasattr(db_pool, "acquire"):
+        raise HTTPException(status_code=503, detail="db_pool unavailable")
+
+    async with db_pool.acquire() as conn:
+        report = await run_contract_test(conn, mcp_client)
+    return JSONResponse(report.to_dict())
 
 
 @router.get("/presets")

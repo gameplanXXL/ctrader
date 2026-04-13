@@ -89,6 +89,38 @@ class MCPClient:
         )
         return result
 
+    async def call_tool(
+        self,
+        name: str,
+        arguments: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """Call an MCP tool via `tools/call` JSON-RPC.
+
+        Story 5.1 entry point: the fundamental service uses this to
+        hit the `fundamentals` / `price` / `news` tools on the
+        `/home/cneise/Project/fundamental` MCP server.
+
+        Returns the full JSON-RPC response (with `result` and
+        `content` fields). Callers should tolerate `{"result": ...}`
+        or `{"error": ...}` shapes.
+
+        Raises the same errors as `list_tools` — the caller is
+        expected to wrap them in graceful-degradation logic.
+        """
+
+        payload = {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {"name": name, "arguments": arguments or {}},
+        }
+        logger.info("mcp.call_tool.requesting", tool=name, url=self.base_url)
+        response = await self._client.post(self.base_url, json=payload, timeout=self.timeout)
+        response.raise_for_status()
+        result: dict[str, Any] = response.json()
+        logger.info("mcp.call_tool.received", tool=name)
+        return result
+
 
 def _count_tools(payload: dict[str, Any]) -> int:
     """Count tools in a JSON-RPC `tools/list` response.

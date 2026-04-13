@@ -100,6 +100,86 @@
     </div>
   </details>
 
+  {# Story 5.2 — Fundamental side-by-side. Left column: the historical
+     snapshot captured at trade-entry time (live-sync hook). Right
+     column: the current live assessment via the Story 5.1 cache.
+     Empty states render in --text-muted with a clear reason. #}
+  <section class="trade-detail__fundamental">
+    <h3>Fundamental</h3>
+    <div class="fundamental-grid">
+      <div class="fundamental-grid__col">
+        <h4 class="fundamental-grid__header">Damals (Entry)</h4>
+        {% if historical_snapshot %}
+          {% set hist = historical_snapshot.as_assessment %}
+          <dl class="fundamental-grid__body">
+            <div class="fundamental-grid__field">
+              <dt>Rating</dt>
+              <dd>{{ hist.rating.value | upper }}</dd>
+            </div>
+            <div class="fundamental-grid__field">
+              <dt>Confidence</dt>
+              <dd class="tabular">{{ (hist.confidence * 100) | int }}%</dd>
+            </div>
+            <div class="fundamental-grid__field">
+              <dt>Agent</dt>
+              <dd>{{ hist.agent_id | title }}</dd>
+            </div>
+            <div class="fundamental-grid__field fundamental-grid__field--wide">
+              <dt>Thesis</dt>
+              <dd class="fundamental-grid__thesis">{{ hist.thesis or "—" }}</dd>
+            </div>
+            <div class="fundamental-grid__field fundamental-grid__field--wide">
+              <dt>Snapshot at</dt>
+              <dd class="tabular">{{ historical_snapshot.snapshot_at | format_time }}</dd>
+            </div>
+          </dl>
+        {% else %}
+          <p class="fundamental-grid__empty">
+            Keine historische Einschätzung verfügbar.
+            <small>Dieser Trade wurde vor der Fundamental-Integration importiert oder der MCP war zum Entry-Zeitpunkt nicht erreichbar.</small>
+          </p>
+        {% endif %}
+      </div>
+      <div class="fundamental-grid__col">
+        <h4 class="fundamental-grid__header">Jetzt (Live)</h4>
+        {% if live_fundamental %}
+          {% set live = live_fundamental.assessment %}
+          <dl class="fundamental-grid__body">
+            <div class="fundamental-grid__field">
+              <dt>Rating</dt>
+              <dd>{{ live.rating.value | upper }}</dd>
+            </div>
+            <div class="fundamental-grid__field">
+              <dt>Confidence</dt>
+              <dd class="tabular">{{ (live.confidence * 100) | int }}%</dd>
+            </div>
+            <div class="fundamental-grid__field">
+              <dt>Agent</dt>
+              <dd>{{ live.agent_id | title }}</dd>
+            </div>
+            <div class="fundamental-grid__field fundamental-grid__field--wide">
+              <dt>Thesis</dt>
+              <dd class="fundamental-grid__thesis">{{ live.thesis or "—" }}</dd>
+            </div>
+            <div class="fundamental-grid__field fundamental-grid__field--wide">
+              <dt>Stand</dt>
+              <dd class="tabular">
+                {{ live_staleness }}
+                {% if live_fundamental.is_stale %}
+                  <span class="fundamental-grid__stale-badge">stale</span>
+                {% endif %}
+              </dd>
+            </div>
+          </dl>
+        {% else %}
+          <p class="fundamental-grid__empty">
+            N/A — MCP nicht erreichbar oder kein Cache-Fallback vorhanden.
+          </p>
+        {% endif %}
+      </div>
+    </div>
+  </section>
+
   {# Story 4.5: OHLC chart container. The chart script fetches
      /trades/{id}/chart_data and calls into the lightweight-charts
      vendor library at the end of the fragment. Shows an empty-state
@@ -246,6 +326,80 @@
   }
   .chart-container .trade-detail__placeholder {
     text-align: center;
+  }
+  /* Story 5.2 — Fundamental side-by-side */
+  .trade-detail__fundamental {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .trade-detail__fundamental h3 {
+    margin: 0 0 var(--space-3);
+    font-size: var(--font-size-section);
+  }
+  .fundamental-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-4);
+  }
+  @media (max-width: 700px) {
+    .fundamental-grid { grid-template-columns: 1fr; }
+  }
+  .fundamental-grid__col {
+    padding: var(--space-3);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  .fundamental-grid__header {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .fundamental-grid__body {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-2) var(--space-3);
+    margin: 0;
+  }
+  .fundamental-grid__field dt {
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .fundamental-grid__field dd {
+    margin: 0;
+    font-size: var(--font-size-body);
+    color: var(--text-primary);
+  }
+  .fundamental-grid__field--wide {
+    grid-column: span 2;
+  }
+  .fundamental-grid__thesis {
+    font-size: var(--font-size-small);
+    line-height: 1.4;
+  }
+  .fundamental-grid__empty {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: var(--font-size-small);
+  }
+  .fundamental-grid__empty small {
+    display: block;
+    margin-top: var(--space-1);
+    color: var(--text-muted);
+  }
+  .fundamental-grid__stale-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-left: var(--space-1);
+    background-color: rgba(245, 158, 11, 0.2);
+    color: var(--status-yellow, #f59e0b);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
   }
 </style>
 

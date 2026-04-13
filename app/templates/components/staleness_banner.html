@@ -1,13 +1,97 @@
 {#
-  staleness_banner(last_update, source, critical=False)
-  Tier-2 component, full implementation in Story 5.3 (Graceful Degradation).
-  Dead-man's-switch for MCP outages.
+  staleness_banner(agent_health)
+  Story 5.3 / UX-DR20 — MCP dead-man's-switch.
+
+  `agent_health` is a list of `AgentHealth` records from
+  `app.services.mcp_health.get_all_agents()`. The banner renders only
+  the agents whose severity is yellow/red; ok severity stays invisible.
+
+  Severity mapping:
+    yellow (1h..24h stale) → gelbe Akzent-Leiste, role="status"
+    red    (>24h stale or never)  → rote Akzent-Leiste, role="alert",
+                                     aria-live="assertive"
+
+  Optional HTMX polling: pass `polling=True` to re-fetch the banner
+  every 60s from `/api/mcp-status`.
 #}
-{% macro staleness_banner(last_update, source, critical=false) %}
-<div class="staleness-banner {% if critical %}staleness-banner--critical{% endif %}"
-     role="alert"
-     aria-live="{{ 'assertive' if critical else 'polite' }}">
-  <strong>{{ source }}:</strong>
-  letzte Aktualisierung {{ last_update }}
-</div>
+{% macro staleness_banner(agent_health, polling=true) %}
+  {% set visible = agent_health | selectattr("severity", "in", ["yellow", "red"]) | list %}
+  {% if visible %}
+    {% set worst_severity = "red" if visible | selectattr("severity", "equalto", "red") | list else "yellow" %}
+    <div
+      class="staleness-banner staleness-banner--{{ worst_severity }}"
+      role="{{ 'alert' if worst_severity == 'red' else 'status' }}"
+      aria-live="{{ 'assertive' if worst_severity == 'red' else 'polite' }}"
+      id="staleness-banner"
+      {% if polling %}
+      hx-get="/api/mcp-status"
+      hx-trigger="every 60s"
+      hx-swap="outerHTML"
+      {% endif %}
+    >
+      <span class="staleness-banner__icon" aria-hidden="true">
+        {% if worst_severity == "red" %}⛔{% else %}⚠{% endif %}
+      </span>
+      <span class="staleness-banner__label">
+        MCP-Agents mit Cache-Problem:
+      </span>
+      <ul class="staleness-banner__agents">
+        {% for agent in visible %}
+          <li class="staleness-banner__agent">
+            <strong>{{ agent.agent | title }}</strong>: {{ agent.staleness_phrase }}
+            {% if agent.failure_count > 0 %}
+              · <em>{{ agent.failure_count }} Fehlschläge</em>
+            {% endif %}
+          </li>
+        {% endfor %}
+      </ul>
+    </div>
+  {% else %}
+    {# Empty span preserves HTMX swap target. When severity improves
+       the polling swap replaces the whole banner, which then stays
+       empty until the next deterioration. #}
+    <span id="staleness-banner" hidden
+      {% if polling %}
+      hx-get="/api/mcp-status"
+      hx-trigger="every 60s"
+      hx-swap="outerHTML"
+      {% endif %}></span>
+  {% endif %}
 {% endmacro %}
+
+<style>
+  .staleness-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    border-left: 4px solid var(--status-yellow, #f59e0b);
+    background-color: rgba(245, 158, 11, 0.08);
+    color: var(--text-primary);
+    font-size: var(--font-size-small);
+    margin: 0;
+  }
+  .staleness-banner--red {
+    border-left-color: var(--color-loss, #ef4444);
+    background-color: rgba(239, 68, 68, 0.1);
+  }
+  .staleness-banner__icon {
+    font-size: 16px;
+    line-height: 1;
+  }
+  .staleness-banner__label {
+    color: var(--text-secondary);
+    font-weight: 500;
+  }
+  .staleness-banner__agents {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+    list-style: none;
+    margin: 0;
+    padding: 0;
+  }
+  .staleness-banner__agent {
+    color: var(--text-primary);
+  }
+</style>
