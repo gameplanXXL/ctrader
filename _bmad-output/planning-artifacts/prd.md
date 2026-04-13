@@ -631,7 +631,7 @@ Kein Grafana, kein Prometheus, kein SaaS-Error-Tracker im MVP. Was stattdessen d
 - **Transaktionalität:** Jede Migration läuft in einer eigenen Transaktion; PostgreSQL's transaktionales DDL rollt bei Fehler automatisch zurück.
 - **Reversibilität:** Wo sinnvoll, eine `.down.sql`-Datei neben der `.up.sql`. Bei destruktiven Änderungen (DROP) darf `.down` fehlen, mit Kommentar warum.
 - **Seed-Daten:** `taxonomy.yaml` wird in Migration `002` oder vergleichbar in die DB geladen. Weitere Seeds nach Bedarf.
-- **DB-Client:** `psycopg` (v3) als Standard-Client — modern, async-fähig, pragmatisch. **Kein ORM** (kein SQLAlchemy): Trade-Schema ist stabil genug, dass ein ORM Overhead wäre, und die JSONB-Query-Logik für `trigger_spec`-Facetten liest sich in rohem SQL ohnehin direkter.
+- **DB-Client:** `asyncpg` als Standard-Client — Binary-Protocol, eingebauter Connection-Pool, automatische JSONB ↔ dict Konversion. **Kein ORM** (kein SQLAlchemy): Trade-Schema ist stabil genug, dass ein ORM Overhead wäre, und die JSONB-Query-Logik für `trigger_spec`-Facetten liest sich in rohem SQL ohnehin direkter. (Bestätigt durch Architektur-Dokument.)
 
 ### Dev-Tooling
 
