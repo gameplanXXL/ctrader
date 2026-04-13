@@ -10,7 +10,14 @@
   defined in design-tokens.css.
 #}
 {% macro trade_row(trade) %}
-<tr class="trade-row" data-trade-id="{{ trade.id }}">
+<tr class="trade-row"
+    data-trade-id="{{ trade.id }}"
+    hx-get="/trades/{{ trade.id }}/detail_fragment"
+    hx-target="#expansion-{{ trade.id }}"
+    hx-swap="innerHTML"
+    hx-push-url="/journal?expand={{ trade.id }}"
+    role="button"
+    tabindex="0">
   <td class="trade-row__symbol tabular">{{ trade.symbol }}</td>
   <td class="trade-row__side trade-row__side--{{ trade.side }}">{{ trade.side | upper }}</td>
   <td class="trade-row__time tabular">{{ trade.opened_at | format_time }}</td>
@@ -28,5 +35,8 @@
       <span class="status-pill status-pill--open">open</span>
     {% endif %}
   </td>
+</tr>
+<tr class="trade-row__expansion-row">
+  <td colspan="9" id="expansion-{{ trade.id }}" class="trade-row__expansion-cell"></td>
 </tr>
 {% endmacro %}

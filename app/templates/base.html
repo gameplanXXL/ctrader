@@ -6,6 +6,7 @@
   <title>{% block title %}ctrader{% endblock %}</title>
   <link rel="stylesheet" href="{{ url_for('static', path='css/compiled.css') }}">
   <script src="{{ url_for('static', path='js/viewport-guard.js') }}" defer></script>
+  <script src="{{ url_for('static', path='js/htmx.min.js') }}" defer></script>
 </head>
 <body>
   {% include "_topbar.html" %}

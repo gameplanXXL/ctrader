@@ -1,0 +1,196 @@
+{#
+  Trade-Drilldown Fragment — Story 2.4
+
+  Returned by GET /trades/{id}/detail_fragment as an HTMX swap target.
+  Renders core fields always-visible + an "Advanced Metrics" section
+  marked as collapsed by default (UX-DR100 progressive disclosure).
+
+  This template is intentionally minimal in 2.4; later stories grow it:
+  - Story 3.3 adds the trigger_spec_readable section
+  - Story 4.3 wires real MAE/MFE values into Advanced Metrics
+  - Story 4.5 mounts the lightweight-charts OHLC widget below
+  - Story 5.2 adds the Viktor/Satoshi side-by-side fundamentals block
+#}
+<div class="trade-detail" data-trade-detail-id="{{ trade.id }}">
+  <header class="trade-detail__header">
+    <h2 class="trade-detail__title">
+      {{ trade.symbol }}
+      <span class="trade-detail__subtitle">
+        {{ trade.side | upper }} · {{ trade.broker | upper }} · {{ trade.asset_class }}
+      </span>
+    </h2>
+    <button
+      type="button"
+      class="trade-detail__close"
+      aria-label="Drilldown schliessen"
+      onclick="document.getElementById('expansion-{{ trade.id }}').innerHTML = '';"
+    >&times;</button>
+  </header>
+
+  <dl class="trade-detail__core">
+    <div class="trade-detail__field">
+      <dt>Quantity</dt>
+      <dd class="tabular">{{ trade.quantity | format_quantity }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Entry</dt>
+      <dd class="tabular">{{ trade.entry_price | format_price }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Exit</dt>
+      <dd class="tabular">{{ trade.exit_price | format_price }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Opened (UTC)</dt>
+      <dd class="tabular">{{ trade.opened_at | format_time }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Closed (UTC)</dt>
+      <dd class="tabular">{{ trade.closed_at | format_time }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Fees</dt>
+      <dd class="tabular">{{ trade.fees | format_price }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>P&amp;L (computed)</dt>
+      <dd class="tabular {{ computed_pnl | pnl_class }}">{{ computed_pnl | format_pnl }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>R-Multiple</dt>
+      <dd class="tabular">{{ computed_r_multiple | format_r_multiple }}</dd>
+    </div>
+    <div class="trade-detail__field">
+      <dt>Expectancy@Entry</dt>
+      <dd class="tabular">{{ computed_expectancy | format_r_multiple }}</dd>
+    </div>
+  </dl>
+
+  <details class="trade-detail__advanced">
+    <summary>+ Advanced Metrics</summary>
+    <div class="trade-detail__advanced-body">
+      <p class="trade-detail__placeholder">
+        MFE / MAE kommen in Story 4.3, Regime-Kontext in Story 9.x,
+        OHLC-Chart in Story 4.5, Trigger-Provenance in Story 3.3.
+      </p>
+      <dl class="trade-detail__core">
+        <div class="trade-detail__field">
+          <dt>perm_id</dt>
+          <dd class="tabular">{{ trade.perm_id }}</dd>
+        </div>
+        <div class="trade-detail__field">
+          <dt>created_at</dt>
+          <dd class="tabular">{{ trade.created_at | format_time }}</dd>
+        </div>
+        <div class="trade-detail__field">
+          <dt>updated_at</dt>
+          <dd class="tabular">{{ trade.updated_at | format_time }}</dd>
+        </div>
+      </dl>
+    </div>
+  </details>
+
+  {% if trade.trigger_spec is not none %}
+    <section class="trade-detail__trigger">
+      <h3>Trigger Provenance</h3>
+      <p class="trade-detail__placeholder">
+        Lesbare Darstellung kommt in Story 3.3 (trigger_spec_readable Macro).
+        Roh-JSON unten zur Verifikation.
+      </p>
+      <pre class="trade-detail__raw"><code>{{ trade.trigger_spec | tojson(indent=2) }}</code></pre>
+    </section>
+  {% endif %}
+</div>
+
+<style>
+  .trade-detail {
+    padding: var(--space-4);
+    background-color: var(--bg-surface);
+    border-left: 3px solid var(--accent);
+  }
+  .trade-detail__header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+  }
+  .trade-detail__title {
+    margin: 0;
+    font-size: var(--font-size-section);
+  }
+  .trade-detail__subtitle {
+    margin-left: var(--space-2);
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+    font-weight: 400;
+  }
+  .trade-detail__close {
+    background: none;
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    padding: var(--space-1) var(--space-2);
+    cursor: pointer;
+    font-size: var(--font-size-section);
+    line-height: 1;
+  }
+  .trade-detail__close:hover {
+    background-color: var(--bg-elevated);
+    color: var(--text-primary);
+  }
+  .trade-detail__core {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-3) var(--space-6);
+    margin: 0;
+  }
+  .trade-detail__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .trade-detail__field dt {
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .trade-detail__field dd {
+    margin: 0;
+    font-size: var(--font-size-body);
+    color: var(--text-primary);
+  }
+  .trade-detail__advanced {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .trade-detail__advanced summary {
+    cursor: pointer;
+    color: var(--accent);
+    font-size: var(--font-size-small);
+    margin-bottom: var(--space-3);
+  }
+  .trade-detail__advanced-body {
+    padding-top: var(--space-2);
+  }
+  .trade-detail__placeholder {
+    color: var(--text-muted);
+    font-size: var(--font-size-small);
+    font-style: italic;
+  }
+  .trade-detail__trigger {
+    margin-top: var(--space-4);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
+  .trade-detail__trigger h3 {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-section);
+  }
+  .trade-detail__raw {
+    background-color: var(--bg-void);
+    padding: var(--space-3);
+    overflow-x: auto;
+    font-size: var(--font-size-small);
+  }
+</style>

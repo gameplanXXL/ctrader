@@ -40,7 +40,7 @@ development_status:
   2-1-trades-datenmodell-flex-import: in-progress
   2-2-live-ib-sync-reconciliation: review
   2-3-journal-startseite-trade-list: review
-  2-4-trade-drilldown-inline-expansion: ready-for-dev
+  2-4-trade-drilldown-inline-expansion: review
 
   # =========================================================================
   # EPIC 3: Trade-Tagging & Trigger-Provenance

@@ -1,6 +1,6 @@
 # Story 2.4: Trade-Drilldown — Inline Expansion
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -20,31 +20,31 @@ so that I can understand every aspect of a trade decision.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Trade-Detail-Query (AC: 2, 6)
-  - [ ] `app/services/trade_query.py` — `get_trade_detail(trade_id)`
-  - [ ] JOIN mit spaeter: strategies (Epic 6), fundamentals (Epic 5)
-  - [ ] Initial: Nur Felder aus trades-Tabelle
-- [ ] Task 2: P&L-Berechnung mit Fees (AC: 2)
-  - [ ] `app/services/pnl.py` — `compute_pnl(trade)` inklusive fees
-  - [ ] CFD-Funding-Rates: Phase 2, vorerst `NULL`
-- [ ] Task 3: R-Multiple-Berechnung (AC: 2)
-  - [ ] `app/services/r_multiple.py` — `compute_r_multiple(trade)`
-  - [ ] Bei fehlendem Stop-Loss: return `None` (kein "0"!)
-  - [ ] Formel: `(exit_price - entry_price) / (entry_price - stop_price)` (long) bzw. invertiert (short)
-- [ ] Task 4: Expectancy-at-Entry (AC: 2)
-  - [ ] `app/services/expectancy.py` — `compute_expectancy_at_entry(trade)`
-  - [ ] Basiert auf Strategie-Historie (placeholder bis Epic 6 — vorerst NULL)
-- [ ] Task 5: HTMX Inline-Expansion Route (AC: 1, 3, 5)
-  - [ ] GET `/trades/{id}/detail_fragment` → rendert detail partial
-  - [ ] Trade-Row mit `hx-get="/trades/{id}/detail_fragment"` `hx-target="#expansion-{id}"` `hx-push-url="true"`
-  - [ ] Alpine.js oder vanilla JS fuer Escape-Close
-- [ ] Task 6: URL-State (AC: 4)
-  - [ ] `?expand={id}` wird beim Initial-Load ausgewertet
-  - [ ] Server rendert expanded direkt wenn Parameter vorhanden
-- [ ] Task 7: Progressive Disclosure (AC: 7)
-  - [ ] Core-Fields immer sichtbar
-  - [ ] "Advanced Metrics"-Section collapsible
-  - [ ] Alpine.js `x-data="{ open: false }"` Pattern
+- [x] Task 1: Trade-Detail-Query (AC: 2, 6)
+  - [x] `app/services/trade_query.py` — `get_trade_detail(trade_id)`
+  - [x] JOIN mit spaeter: strategies (Epic 6), fundamentals (Epic 5)
+  - [x] Initial: Nur Felder aus trades-Tabelle
+- [x] Task 2: P&L-Berechnung mit Fees (AC: 2)
+  - [x] `app/services/pnl.py` — `compute_pnl(trade)` inklusive fees
+  - [x] CFD-Funding-Rates: Phase 2, vorerst `NULL`
+- [x] Task 3: R-Multiple-Berechnung (AC: 2)
+  - [x] `app/services/r_multiple.py` — `compute_r_multiple(trade)`
+  - [x] Bei fehlendem Stop-Loss: return `None` (kein "0"!)
+  - [x] Formel: `(exit_price - entry_price) / (entry_price - stop_price)` (long) bzw. invertiert (short)
+- [x] Task 4: Expectancy-at-Entry (AC: 2)
+  - [x] `app/services/expectancy.py` — `compute_expectancy_at_entry(trade)`
+  - [x] Basiert auf Strategie-Historie (placeholder bis Epic 6 — vorerst NULL)
+- [x] Task 5: HTMX Inline-Expansion Route (AC: 1, 3, 5)
+  - [x] GET `/trades/{id}/detail_fragment` → rendert detail partial
+  - [x] Trade-Row mit `hx-get="/trades/{id}/detail_fragment"` `hx-target="#expansion-{id}"` `hx-push-url="true"`
+  - [x] Alpine.js oder vanilla JS fuer Escape-Close
+- [x] Task 6: URL-State (AC: 4)
+  - [x] `?expand={id}` wird beim Initial-Load ausgewertet
+  - [x] Server rendert expanded direkt wenn Parameter vorhanden
+- [x] Task 7: Progressive Disclosure (AC: 7)
+  - [x] Core-Fields immer sichtbar
+  - [x] "Advanced Metrics"-Section collapsible
+  - [x] Alpine.js `x-data="{ open: false }"` Pattern
 
 ## Dev Notes
 

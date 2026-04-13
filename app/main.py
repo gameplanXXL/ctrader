@@ -29,6 +29,7 @@ from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
 from app.routers import debug as debug_router
 from app.routers import pages as pages_router
+from app.routers import trades as trades_router
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
 
@@ -137,6 +138,9 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # Page shells — Journal, Strategies, Approvals, Trends, Regime, Settings.
 app.include_router(pages_router.router)
+
+# Trade-detail fragment endpoints (Story 2.4 — HTMX inline expansion).
+app.include_router(trades_router.router)
 
 # Debug routes — only mounted in development. /debug/mcp-tools exposes
 # the live MCP handshake response so Chef can verify it from a browser.
