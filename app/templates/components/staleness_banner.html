@@ -1,0 +1,13 @@
+{#
+  staleness_banner(last_update, source, critical=False)
+  Tier-2 component, full implementation in Story 5.3 (Graceful Degradation).
+  Dead-man's-switch for MCP outages.
+#}
+{% macro staleness_banner(last_update, source, critical=false) %}
+<div class="staleness-banner {% if critical %}staleness-banner--critical{% endif %}"
+     role="alert"
+     aria-live="{{ 'assertive' if critical else 'polite' }}">
+  <strong>{{ source }}:</strong>
+  letzte Aktualisierung {{ last_update }}
+</div>
+{% endmacro %}

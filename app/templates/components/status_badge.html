@@ -1,0 +1,13 @@
+{#
+  status_badge(status, label=None)
+  Tier-1 component, used by risk gate, health widget, order status.
+  status ∈ {"green", "yellow", "red", "unknown"}
+#}
+{% macro status_badge(status, label=none) %}
+<span class="status-badge status-badge--{{ status }}"
+      role="status"
+      aria-label="{{ label or status }}">
+  <span class="status-badge__dot"></span>
+  {% if label %}<span class="status-badge__label">{{ label }}</span>{% endif %}
+</span>
+{% endmacro %}

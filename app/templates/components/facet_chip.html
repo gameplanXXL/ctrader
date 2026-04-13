@@ -1,0 +1,13 @@
+{#
+  facet_chip(label, active, count, href)
+  Tier-1 component, full implementation in Epic 4 (Story 4.1).
+#}
+{% macro facet_chip(label, active=false, count=none, href="#") %}
+<a href="{{ href }}"
+   class="facet-chip {% if active %}facet-chip--active{% endif %}"
+   role="button"
+   aria-pressed="{{ 'true' if active else 'false' }}">
+  <span>{{ label }}</span>
+  {% if count is not none %}<span class="facet-chip__count">{{ count }}</span>{% endif %}
+</a>
+{% endmacro %}

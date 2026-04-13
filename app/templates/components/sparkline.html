@@ -1,0 +1,12 @@
+{#
+  sparkline(data, width=120, height=24, label=None)
+  Tier-1 component, full implementation in Story 6.2.
+  Server-rendered SVG — NOT lightweight-charts. (trade_chart is the
+  OHLC component for FR13c.)
+#}
+{% macro sparkline(data, width=120, height=24, label=none) %}
+<svg class="sparkline" width="{{ width }}" height="{{ height }}"
+     role="img" aria-label="{{ label or 'Sparkline' }}">
+  {# Stub — real implementation in Story 6.2 #}
+</svg>
+{% endmacro %}

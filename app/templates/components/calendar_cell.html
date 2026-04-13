@@ -1,0 +1,14 @@
+{#
+  calendar_cell(date, pnl, tags=None)
+  Tier-2 component, full implementation in Story 4.4 (P&L-Kalender-View).
+#}
+{% macro calendar_cell(date, pnl=none, tags=none) %}
+<div class="calendar-cell"
+     role="gridcell"
+     aria-label="{{ date }} P&L {{ pnl or 'keine Trades' }}">
+  <span class="calendar-cell__date">{{ date.day }}</span>
+  {% if pnl is not none %}
+    <span class="calendar-cell__pnl" data-numeric>{{ pnl }}</span>
+  {% endif %}
+</div>
+{% endmacro %}

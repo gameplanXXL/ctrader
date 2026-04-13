@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, minimum-scale=1">
+  <title>{% block title %}ctrader{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', path='css/compiled.css') }}">
+  <script src="{{ url_for('static', path='js/viewport-guard.js') }}" defer></script>
+</head>
+<body>
+  {% include "_topbar.html" %}
+  <main class="ctrader-main">
+    {% block content %}{% endblock %}
+  </main>
+  <style>
+    /* Layout-level styles that depend on design tokens. */
+    .ctrader-main {
+      max-width: var(--content-max-width, 1440px);
+      margin: 0 auto;
+      padding: var(--space-6, 24px);
+    }
+  </style>
+</body>
+</html>

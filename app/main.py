@@ -14,15 +14,18 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from app import __version__
 from app.config import settings
 from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
+from app.routers import pages as pages_router
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
 
@@ -74,10 +77,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Static files (compiled CSS, JS, fonts) served directly by FastAPI.
+_STATIC_DIR = Path(__file__).resolve().parent / "static"
+app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
-@app.get("/", response_class=JSONResponse)
-async def root() -> dict[str, str]:
-    """Week-0 placeholder. Grows into the full journal startpage in Epic 2."""
+# Page shells — Journal, Strategies, Approvals, Trends, Regime, Settings.
+app.include_router(pages_router.router)
+
+
+@app.get("/healthz", response_class=JSONResponse, include_in_schema=False)
+async def healthz() -> dict[str, str]:
+    """Liveness probe. Used by Docker Compose healthcheck + smoke tests.
+
+    Kept separate from `/` which now redirects to `/journal`. Returns the
+    same JSON payload that the Week-0 placeholder used to return from `/`.
+    """
 
     return {
         "app": "ctrader",

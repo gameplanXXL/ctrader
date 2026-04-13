@@ -22,10 +22,18 @@ def test_default_host_binds_loopback() -> None:
     assert settings.host == "127.0.0.1"
 
 
-def test_root_endpoint_returns_200(client: TestClient) -> None:
-    """AC #2: GET / returns a 200 response with a small JSON body."""
+def test_root_redirects_to_journal(client: TestClient) -> None:
+    """Story 1.5: GET / redirects to /journal (Chef's primary surface)."""
 
-    response = client.get("/")
+    response = client.get("/", follow_redirects=False)
+    assert response.status_code == 302
+    assert response.headers["location"] == "/journal"
+
+
+def test_healthz_endpoint_returns_200(client: TestClient) -> None:
+    """Story 1.1 AC #2 (moved to /healthz in Story 1.5): liveness probe."""
+
+    response = client.get("/healthz")
     assert response.status_code == 200
 
     body = response.json()

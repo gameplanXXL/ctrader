@@ -1,0 +1,15 @@
+{#
+  query_prose(facets)
+  Tier-2 component, full implementation in Story 4.2.
+  Renders active facets as a natural-language query sentence.
+#}
+{% macro query_prose(facets) %}
+<p class="query-prose" role="status" aria-live="polite">
+  {# Stub — real implementation in Story 4.2 turns facets into prose #}
+  {% if facets %}
+    {{ facets | length }} aktive{% if facets | length == 1 %}r{% endif %} Filter
+  {% else %}
+    Alle Trades
+  {% endif %}
+</p>
+{% endmacro %}

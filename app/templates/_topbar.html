@@ -1,0 +1,82 @@
+{#
+  Top-Bar — persistent across all pages.
+
+  UX-DR78: logo left, nav middle, health status dots right.
+  UX-DR82: no hamburger, no drawer, no tab-bar.
+
+  The `active_route` variable is passed by every page render so the
+  matching nav item gets `aria-current="page"` and the accent color.
+#}
+<header class="ctrader-topbar" role="banner">
+  <a href="/" class="ctrader-logo" aria-label="ctrader Startseite">
+    <span class="ctrader-logo-mark">⌬</span>
+    <span class="ctrader-logo-word">ctrader</span>
+  </a>
+
+  <nav class="ctrader-nav" role="navigation" aria-label="Hauptnavigation">
+    {% set nav_items = [
+      ("journal", "/journal", "Journal"),
+      ("strategies", "/strategies", "Strategies"),
+      ("approvals", "/approvals", "Approvals"),
+      ("trends", "/trends", "Trends"),
+      ("regime", "/regime", "Regime"),
+      ("settings", "/settings", "Settings"),
+    ] %}
+    {% for slug, href, label in nav_items %}
+      <a href="{{ href }}"
+         class="nav-link"
+         {% if active_route == slug %}aria-current="page"{% endif %}>{{ label }}</a>
+    {% endfor %}
+  </nav>
+
+  <div class="ctrader-health" role="status" aria-label="System-Status">
+    {# Placeholder dots — wired up to real health in Story 12.2. #}
+    <span class="health-dot health-dot--muted" title="IB Gateway: unbekannt"></span>
+    <span class="health-dot health-dot--muted" title="cTrader: unbekannt"></span>
+    <span class="health-dot health-dot--muted" title="MCP: unbekannt"></span>
+  </div>
+</header>
+
+<style>
+  .ctrader-topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-3) var(--space-6);
+    background-color: var(--bg-chrome);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .ctrader-logo {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    color: var(--text-primary);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: var(--font-size-section);
+  }
+  .ctrader-logo-mark {
+    color: var(--accent);
+    font-size: 22px;
+    line-height: 1;
+  }
+  .ctrader-nav {
+    display: flex;
+    gap: var(--space-1);
+  }
+  .ctrader-health {
+    display: flex;
+    gap: var(--space-2);
+    align-items: center;
+  }
+  .health-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background-color: var(--text-muted);
+  }
+  .health-dot--green { background-color: var(--status-green); }
+  .health-dot--yellow { background-color: var(--status-yellow); }
+  .health-dot--red { background-color: var(--status-red); }
+</style>

@@ -1,0 +1,10 @@
+{#
+  facet_bar(facets)
+  Tier-1 component, full implementation in Epic 4 (Story 4.1).
+  Container that delegates rendering to individual facet_chip macros.
+#}
+{% macro facet_bar(facets) %}
+<div class="facet-bar" role="toolbar" aria-label="Facettenfilter">
+  {% for chip in facets %}{{ chip }}{% endfor %}
+</div>
+{% endmacro %}

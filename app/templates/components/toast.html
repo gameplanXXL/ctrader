@@ -1,0 +1,12 @@
+{#
+  toast(message, variant="info")
+  Tier-1 component, full implementation in Story 3.1 (Tagging-Form).
+  variant ∈ {"success", "error", "info", "warning"}
+#}
+{% macro toast(message, variant="info") %}
+<div class="toast toast--{{ variant }}"
+     role="{{ 'alert' if variant == 'error' else 'status' }}"
+     aria-live="polite">
+  {{ message }}
+</div>
+{% endmacro %}

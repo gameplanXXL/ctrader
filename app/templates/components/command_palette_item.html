@@ -1,0 +1,10 @@
+{#
+  command_palette_item(label, shortcut, action)
+  Tier-3 component, full implementation in Story 4.6 (Command Palette).
+#}
+{% macro command_palette_item(label, shortcut=none, action=none) %}
+<li class="command-palette-item" role="option">
+  <span class="command-palette-item__label">{{ label }}</span>
+  {% if shortcut %}<kbd class="command-palette-item__shortcut">{{ shortcut }}</kbd>{% endif %}
+</li>
+{% endmacro %}

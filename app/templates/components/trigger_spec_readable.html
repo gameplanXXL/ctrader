@@ -1,0 +1,12 @@
+{#
+  trigger_spec_readable(spec)
+  Tier-2 component, full implementation in Story 3.3.
+  Template-based natural language serialization of the JSONB trigger_spec.
+#}
+{% macro trigger_spec_readable(spec) %}
+<p class="trigger-spec-readable">
+  {# Stub — real implementation in Story 3.3 renders different patterns
+     based on spec.trigger_type (viktor_signal, gordon_hot_pick, manual, ...) #}
+  {{ spec.entry_reason or "Nicht getaggt" }}
+</p>
+{% endmacro %}

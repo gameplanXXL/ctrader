@@ -1,0 +1,12 @@
+{#
+  trade_row(trade)
+  Tier-1 component, full implementation in Epic 2 (Story 2.3).
+  States: default | hover | selected | expanded | untagged
+#}
+{% macro trade_row(trade) %}
+<tr class="trade-row" role="row" data-trade-id="{{ trade.id }}" aria-expanded="false">
+  <td>{{ trade.symbol }}</td>
+  <td>{{ trade.side }}</td>
+  <td data-numeric>{{ trade.quantity }}</td>
+</tr>
+{% endmacro %}

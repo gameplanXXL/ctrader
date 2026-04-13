@@ -1,0 +1,12 @@
+{#
+  stat_card(label, value, trend=None, variant=None)
+  Tier-1 component, full implementation in Epic 2 (Story 2.3).
+  Variants: None | "gain" | "loss"
+#}
+{% macro stat_card(label, value, trend=none, variant=none) %}
+<div class="stat-card stat-card--{{ variant or 'neutral' }}" data-numeric>
+  <span class="stat-card__label">{{ label }}</span>
+  <span class="stat-card__value">{{ value }}</span>
+  {% if trend is not none %}<span class="stat-card__trend">{{ trend }}</span>{% endif %}
+</div>
+{% endmacro %}
