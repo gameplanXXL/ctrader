@@ -21,10 +21,12 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.clients.mcp import handshake as mcp_handshake
 from app.config import settings
 from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
+from app.routers import debug as debug_router
 from app.routers import pages as pages_router
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
@@ -63,9 +65,23 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         logger.info("app.migrations_applied", versions=applied)
 
     app.state.db_pool = await create_pool()
+
+    # MCP handshake — best-effort, never blocks startup. Snapshot lands
+    # in data/mcp-snapshots/ on success. On failure mcp_available stays
+    # False and downstream code degrades gracefully (FR23).
+    if settings.mcp_fundamental_url:
+        mcp_available, mcp_client = await mcp_handshake(settings.mcp_fundamental_url)
+    else:
+        logger.info("app.mcp_disabled", reason="mcp_fundamental_url not configured")
+        mcp_available, mcp_client = False, None
+    app.state.mcp_available = mcp_available
+    app.state.mcp_client = mcp_client
+
     try:
         yield
     finally:
+        if app.state.mcp_client is not None:
+            await app.state.mcp_client.aclose()
         await close_pool(app.state.db_pool)
         logger.info("app.shutdown")
 
@@ -83,6 +99,11 @@ app.mount("/static", StaticFiles(directory=str(_STATIC_DIR)), name="static")
 
 # Page shells — Journal, Strategies, Approvals, Trends, Regime, Settings.
 app.include_router(pages_router.router)
+
+# Debug routes — only mounted in development. /debug/mcp-tools exposes
+# the live MCP handshake response so Chef can verify it from a browser.
+if settings.environment == "development":
+    app.include_router(debug_router.router)
 
 
 @app.get("/healthz", response_class=JSONResponse, include_in_schema=False)

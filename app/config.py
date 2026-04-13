@@ -59,6 +59,17 @@ class Settings(BaseSettings):
         description="development | production — gates dev-only features",
     )
 
+    # ------------------------------------------------------------------
+    # MCP fundamental — Story 1.6
+    # ------------------------------------------------------------------
+    mcp_fundamental_url: str | None = Field(
+        default=None,
+        description=(
+            "Base URL of the fundamental MCP server. None = MCP unavailable, "
+            "app starts with mcp_available=False (graceful degradation)."
+        ),
+    )
+
 
 # Singleton instance. Import this, not Settings() directly.
 settings = Settings()

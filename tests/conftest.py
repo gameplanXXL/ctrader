@@ -19,12 +19,12 @@ from app.main import app
 
 @pytest.fixture(autouse=True)
 def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Replace asyncpg + migrations with AsyncMocks for unit tests.
+    """Replace asyncpg + migrations + MCP with AsyncMocks for unit tests.
 
-    The lifespan still exercises `run_migrations`, `create_pool` and
-    `close_pool` but none of them actually touch a database. This keeps
-    the smoke tests hermetic — real DB integration tests live in
-    `tests/integration/` and use testcontainers.
+    The lifespan still exercises `run_migrations`, `create_pool`,
+    `close_pool` and the MCP handshake, but none of them actually touch
+    external services. This keeps the smoke tests hermetic — real DB
+    integration tests live in `tests/integration/` and use testcontainers.
     """
 
     fake_pool = AsyncMock(name="asyncpg.Pool")
@@ -38,9 +38,13 @@ def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> None:
     async def _fake_run_migrations() -> list[str]:
         return []
 
+    async def _fake_mcp_handshake(_url: str) -> tuple[bool, None]:
+        return False, None
+
     monkeypatch.setattr(app_module, "create_pool", _fake_create_pool)
     monkeypatch.setattr(app_module, "close_pool", _fake_close_pool)
     monkeypatch.setattr(app_module, "run_migrations", _fake_run_migrations)
+    monkeypatch.setattr(app_module, "mcp_handshake", _fake_mcp_handshake)
 
 
 @pytest.fixture
