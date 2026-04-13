@@ -42,7 +42,7 @@ so that my database is always in a known, consistent state.
 ## Dev Notes
 
 **Kritisches Prinzip (CLAUDE.md Regel #2):**
-> Alle DuckDB/PostgreSQL-Schema-Änderungen MÜSSEN über versionierte Migrations-Skripte erfolgen. Direkte Schema-Änderungen sind verboten.
+> Alle PostgreSQL-Schema-Änderungen MÜSSEN über versionierte Migrations-Skripte erfolgen. Direkte Schema-Änderungen sind verboten.
 
 **Migration-Format:**
 - Sequenz-Nummerierung: `001_initial_schema.sql`, `002_trades_table.sql`, etc.

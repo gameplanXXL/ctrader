@@ -1,0 +1,133 @@
+# ctrader Sprint Status
+# Generated: 2026-04-13 by bmad-check-implementation-readiness + story patch session
+#
+# STATUS DEFINITIONS:
+# - backlog         : Story planned, story file not yet created
+# - ready-for-dev   : Story file exists with full context, ready for bmad-dev-story
+# - in-progress     : Implementation started, not yet complete
+# - review          : Implementation complete, awaiting code-review
+# - done            : Fully implemented, reviewed, committed
+#
+# EPIC STATUS DEFINITIONS:
+# - backlog         : Epic planned, no stories started
+# - in-progress     : At least one story active or completed
+# - done            : All stories in epic are done
+
+project: ctrader3
+last_updated: '2026-04-13'
+notes: |
+  Alle 48 Story-Dateien existieren als ready-for-dev.
+  Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
+  (order_service.py statt quick_order.py, trades-Tabellen-Erweiterung statt ib_quick_orders,
+  clients/ib.py statt services/ib_order.py, Kill-Switch-Exemption dokumentiert).
+
+development_status:
+  # =========================================================================
+  # EPIC 1: Projekt-Bootstrap & Design-System
+  # =========================================================================
+  epic-1: in-progress
+  1-1-fastapi-scaffolding: ready-for-dev
+  1-2-migrations-framework: ready-for-dev
+  1-3-taxonomy-loader: ready-for-dev
+  1-4-design-tokens-tailwind: ready-for-dev
+  1-5-base-layout-navigation: ready-for-dev
+  1-6-mcp-client-wrapper: ready-for-dev
+
+  # =========================================================================
+  # EPIC 2: Trade-Journal & IB-Import
+  # =========================================================================
+  epic-2: backlog
+  2-1-trades-datenmodell-flex-import: ready-for-dev
+  2-2-live-ib-sync-reconciliation: ready-for-dev
+  2-3-journal-startseite-trade-list: ready-for-dev
+  2-4-trade-drilldown-inline-expansion: ready-for-dev
+
+  # =========================================================================
+  # EPIC 3: Trade-Tagging & Trigger-Provenance
+  # =========================================================================
+  epic-3: backlog
+  3-1-post-hoc-tagging-form: ready-for-dev
+  3-2-trigger-spec-jsonb: ready-for-dev
+  3-3-trigger-spec-readable: ready-for-dev
+  3-4-mistake-tags-top-n-report: ready-for-dev
+
+  # =========================================================================
+  # EPIC 4: Journal-Intelligence — Facetten, Aggregation & Visualisierung
+  # =========================================================================
+  epic-4: backlog
+  4-1-facet-filter-system: ready-for-dev
+  4-2-aggregation-hero-metrics: ready-for-dev
+  4-3-mae-mfe-calculation: ready-for-dev
+  4-4-pnl-calendar-view: ready-for-dev
+  4-5-ohlc-chart-lightweight-charts: ready-for-dev
+  4-6-command-palette: ready-for-dev
+  4-7-csv-export-save-query: ready-for-dev
+
+  # =========================================================================
+  # EPIC 5: Fundamental-Integration (MCP-Layer)
+  # =========================================================================
+  epic-5: backlog
+  5-1-mcp-fundamental-cache: ready-for-dev
+  5-2-fundamental-trade-drilldown: ready-for-dev
+  5-3-graceful-degradation-staleness: ready-for-dev
+  5-4-mcp-contract-test: ready-for-dev
+
+  # =========================================================================
+  # EPIC 6: Strategy-Management
+  # =========================================================================
+  epic-6: backlog
+  6-1-strategy-datenmodell-crud: ready-for-dev
+  6-2-strategy-list-metrics: ready-for-dev
+  6-3-strategy-detail-expectancy: ready-for-dev
+  6-4-strategy-notes-history: ready-for-dev
+  6-5-strategy-status-enforcement: ready-for-dev
+
+  # =========================================================================
+  # EPIC 7: Approval-Pipeline & Risk-Gate
+  # =========================================================================
+  epic-7: backlog
+  7-1-proposal-datenmodell-dashboard: ready-for-dev
+  7-2-risk-gate-integration: ready-for-dev
+  7-3-proposal-drilldown-viewport: ready-for-dev
+  7-4-approve-reject-revision: ready-for-dev
+  7-5-immutable-audit-log: ready-for-dev
+
+  # =========================================================================
+  # EPIC 8: Bot-Execution (cTrader)
+  # =========================================================================
+  epic-8: backlog
+  8-1-ctrader-client-execution: ready-for-dev
+  8-2-execution-status-tracking: ready-for-dev
+
+  # =========================================================================
+  # EPIC 9: Regime-Awareness & Kill-Switch
+  # =========================================================================
+  epic-9: backlog
+  9-1-regime-snapshot-model: ready-for-dev
+  9-2-horizon-aware-kill-switch: ready-for-dev
+  9-3-kill-switch-override-regime-page: ready-for-dev
+
+  # =========================================================================
+  # EPIC 10: Gordon Trend-Radar
+  # =========================================================================
+  epic-10: backlog
+  10-1-gordon-weekly-fetch: ready-for-dev
+  10-2-gordon-diff-hot-picks: ready-for-dev
+  10-3-strategy-candidate-from-hot-pick: ready-for-dev
+
+  # =========================================================================
+  # EPIC 11: IB Quick-Order (FR53-58, Post-IR-Cleanup 2026-04-13)
+  # =========================================================================
+  epic-11: backlog
+  11-1-quick-order-form: ready-for-dev
+  11-2-confirmation-bracket-order: ready-for-dev
+  11-3-quick-order-status-auto-tagging: ready-for-dev
+  11-4-quick-order-error-handling: ready-for-dev
+
+  # =========================================================================
+  # EPIC 12: System-Health & Scheduled Operations
+  # =========================================================================
+  epic-12: backlog
+  12-1-scheduled-jobs-framework: ready-for-dev
+  12-2-health-widget: ready-for-dev
+  12-3-daily-postgres-backups: ready-for-dev

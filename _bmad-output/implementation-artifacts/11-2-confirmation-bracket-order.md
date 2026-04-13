@@ -17,31 +17,43 @@ so that I can review all parameters and have automatic stop-loss protection from
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Confirmation-Viewport Template
-  - [ ] `app/templates/fragments/quick_order_confirm.html`
+- [ ] Task 1: Confirmation-Viewport Template (AC: 1)
+  - [ ] `app/templates/components/quick_order_preview.html` (Tier 2, Woche 3)
   - [ ] Alle Parameter als zusammenfassende Ansicht
   - [ ] Berechnete Felder: initial_stop_price, estimated_risk_dollars
-  - [ ] Single-Viewport, kein Scroll (NFR-R3b)
-- [ ] Task 2: Risk-Calculation-Helper
-  - [ ] `app/services/quick_order.py` — `calculate_initial_stop`, `calculate_risk`
-  - [ ] Initial-Stop = Limit - Trailing-Amount (long) oder Limit + Trailing-Amount (short)
-  - [ ] Estimated-Risk = Quantity * abs(Limit - Initial-Stop)
-- [ ] Task 3: Bracket-Order-Submission via ib_async (AC: 2, 3)
-  - [ ] `app/services/ib_order.py` — `place_bracket_order(params)`
+  - [ ] **Single-Viewport, kein Scroll (NFR-R3b)** — alle Zahlen ohne Scrollen sichtbar
+  - [ ] Bei aktivem Kill-Switch: gelber Warnbanner oberhalb (nicht blockierend — Quick-Order-Exemption)
+- [ ] Task 2: order_service.py — Risk-Calculation + Orchestrierung (AC: 1)
+  - [ ] `app/services/order_service.py` (dediziert, getrennt von trade_service — Architecture Decision A1)
+  - [ ] `calculate_initial_stop(side, limit, trailing_amount, trailing_unit) -> Decimal`
+  - [ ] `calculate_risk(quantity, limit, initial_stop) -> Decimal`
+  - [ ] `submit_quick_order(spec: QuickOrderRequest) -> OrderSubmitResult` — orchestriert Validation, DB-Insert, Bracket-Submission, Status-Tracking
+- [ ] Task 3: Bracket-Order-Submission via clients/ib.py (AC: 2, 3)
+  - [ ] Neue Funktion `place_bracket_order(...)` in `app/clients/ib.py` (Erweiterung, nicht neuer Service — Architecture Decision #9)
+  - [ ] Verwendet `ib_async.IB.bracketOrder()` Convenience-Methode
   - [ ] Parent: LMT mit `transmit=False`
   - [ ] Child: TRAIL mit `transmit=True`
-  - [ ] orderRef = `f"ctrader-quick-{uuid4().hex[:12]}"`
+  - [ ] `orderRef = f"ctrader-quick-{uuid4().hex[:12]}"` — UUID v4 als Idempotenz-Key
 - [ ] Task 4: Atomic Submission
-  - [ ] Beide Orders in einem Call, letzte mit transmit=True
+  - [ ] Beide Orders in einem Call, letzte mit `transmit=True`
   - [ ] IB processiert atomar
-- [ ] Task 5: Idempotency via orderRef (AC: 3)
-  - [ ] orderRef gespeichert als UNIQUE in `ib_quick_orders`-Tabelle (neue Migration)
-  - [ ] Bei Retry: check existing orderRef → return existing
-- [ ] Task 6: Migration 019_ib_quick_orders.sql
-  - [ ] Tabelle `ib_quick_orders`: id, order_ref UNIQUE, parent_order_id, child_order_id, symbol, side, quantity, limit_price, trailing_amount, trailing_unit, status, created_at
+- [ ] Task 5: Idempotency via orderRef (AC: 3, NFR-R3a)
+  - [ ] **`order_ref` als UNIQUE-Constraint in erweiterter `trades`-Tabelle** (Architecture Decision C1)
+  - [ ] `INSERT INTO trades (order_ref, order_status, limit_price, trailing_stop_amount, ...) ON CONFLICT (order_ref) DO NOTHING` — Collision = "schon gesendet, Status abrufen"
+  - [ ] Bei Retry: `order_service.submit_quick_order()` prüft existing row via `order_ref` und returned OrderSubmitResult ohne zweite IB-Submission
+- [ ] Task 6: Migration 005_quick_order_columns.sql (Architecture Decision C1)
+  - [ ] `ALTER TABLE trades ADD COLUMN order_status order_status_enum NULL` (submitted/filled/partial/rejected/cancelled/synced)
+  - [ ] `ALTER TABLE trades ADD COLUMN order_ref TEXT NULL UNIQUE` (Idempotenz-Key)
+  - [ ] `ALTER TABLE trades ADD COLUMN limit_price NUMERIC NULL`
+  - [ ] `ALTER TABLE trades ADD COLUMN trailing_stop_amount NUMERIC NULL`
+  - [ ] `ALTER TABLE trades ADD COLUMN trailing_stop_unit trailing_unit_enum NULL` (absolute/percent)
+  - [ ] `ALTER TABLE trades ADD COLUMN submitted_at TIMESTAMPTZ NULL`
+  - [ ] Idempotent via `IF NOT EXISTS`-Guards
+  - [ ] **Kein separates `ib_quick_orders`-Schema** — Rejected Orders bleiben in `trades` als Provenance-Einträge mit `order_status='rejected'`
 - [ ] Task 7: Mandatory Confirmation (AC: 4)
-  - [ ] POST /quick-order mit Flag `confirmed=true`
-  - [ ] Backend-Guard: if not confirmed → 400 Error
+  - [ ] `POST /trades/quick-order` erfordert vorherigen `POST /trades/quick-order/preview`-Call
+  - [ ] Backend-Guard: Ohne Preview-Token im Session-State → 400 Error
+  - [ ] Keine One-Click-Platzierung moeglich, auch nicht via Direct-API-Call
 
 ## Dev Notes
 
@@ -112,45 +124,76 @@ async def place_bracket_order(
 **Kein One-Click (FR54):**
 Backend MUSS einen expliziten Confirmation-Step erzwingen. Frontend-Bypass ist nicht moeglich.
 
-**ib_quick_orders Schema:**
+**Trade-Schema-Erweiterung (Architecture Decision C1 — kein separates ib_quick_orders-Schema):**
+
+Die `trades`-Tabelle aus Story 2.1 wird in Migration 005 um Order-Lifecycle-Spalten erweitert. Rejected Orders bleiben in `trades` als Provenance-Eintraege mit `order_status='rejected'` — das ist bewusst Teil des Trigger-Provenance-Versprechens (siehe Architecture Decision #9).
+
 ```sql
-CREATE TABLE ib_quick_orders (
-    id SERIAL PRIMARY KEY,
-    order_ref TEXT NOT NULL UNIQUE,
-    parent_order_id INT,  -- IB's orderId
-    child_order_id INT,
-    symbol TEXT NOT NULL,
-    side trade_side NOT NULL,
-    quantity INT NOT NULL,
-    limit_price NUMERIC NOT NULL,
-    trailing_amount NUMERIC NOT NULL,
-    trailing_unit TEXT NOT NULL,  -- '$' or '%'
-    strategy_id INT REFERENCES strategies(id),
-    status order_status NOT NULL DEFAULT 'submitted',
-    created_at TIMESTAMPTZ DEFAULT NOW(),
-    updated_at TIMESTAMPTZ DEFAULT NOW()
-);
+-- migrations/005_quick_order_columns.sql
+
+-- ENUMs (idempotent)
+DO $$ BEGIN
+    CREATE TYPE order_status_enum AS ENUM ('synced', 'submitted', 'filled', 'partial', 'rejected', 'cancelled');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+DO $$ BEGIN
+    CREATE TYPE trailing_unit_enum AS ENUM ('absolute', 'percent');
+EXCEPTION WHEN duplicate_object THEN null; END $$;
+
+-- Spalten auf trades-Tabelle
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS order_status order_status_enum NULL;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS order_ref TEXT NULL;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS limit_price NUMERIC NULL;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS trailing_stop_amount NUMERIC NULL;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS trailing_stop_unit trailing_unit_enum NULL;
+ALTER TABLE trades ADD COLUMN IF NOT EXISTS submitted_at TIMESTAMPTZ NULL;
+
+-- UNIQUE-Constraint fuer Idempotenz (NFR-R3a)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_trades_order_ref
+    ON trades(order_ref) WHERE order_ref IS NOT NULL;
+
+-- Fuer bestehende synced-Trades explizit 'synced' setzen
+UPDATE trades SET order_status = 'synced' WHERE order_status IS NULL;
 ```
 
-**File Structure:**
+**Bei Quick-Order-Submission wird eine neue Row in `trades` eingefuegt:**
+
+```sql
+INSERT INTO trades (
+    symbol, asset_class, side, quantity,
+    limit_price, trailing_stop_amount, trailing_stop_unit,
+    order_ref, order_status, submitted_at,
+    trigger_spec, strategy_id, horizon,
+    source
+)
+VALUES ($1, 'stock', $2, $3, $4, $5, $6, $7, 'submitted', NOW(), $8, $9, $10, 'ib')
+ON CONFLICT (order_ref) DO NOTHING
+RETURNING id;
+```
+
+**File Structure (laut Architecture Decision A1 + B2 + #9):**
 ```
 migrations/
-└── 019_ib_quick_orders.sql           # NEW
+└── 005_quick_order_columns.sql         # NEW (ALTER TABLE trades, nicht CREATE TABLE ib_quick_orders)
 app/
 ├── services/
-│   ├── quick_order.py                 # NEW - risk calc
-│   └── ib_order.py                    # NEW - bracket order
+│   └── order_service.py                # NEW - Risk-Calc + Orchestrierung (Decision A1)
+├── clients/
+│   └── ib.py                           # UPDATE - neue Funktion place_bracket_order() (Decision #9)
 ├── routers/
-│   └── quick_order.py                 # UPDATE - /quick-order/confirm
+│   └── trades.py                       # UPDATE - POST /trades/quick-order/preview, POST /trades/quick-order (Decision B2)
 └── templates/
-    └── fragments/
-        └── quick_order_confirm.html   # NEW
+    └── components/
+        ├── quick_order_form.html       # Story 11.1
+        └── quick_order_preview.html    # NEW - Bestaetigungs-Zusammenfassung
 ```
 
 ### References
 
-- PRD: FR54, FR55, NFR-R3a, NFR-R3b
-- Dependency: Story 11.1 (Form), Story 2.2 (ib_async Client)
+- PRD: FR54, FR55, NFR-R3a, NFR-R3b, FR42 (Kill-Switch-Exemption)
+- Architecture: Decision #9 IB Quick-Order, Decision A1 (dedizierter order_service), Decision B2 (Router unter trades.py), Decision C1 (erweiterte trades-Tabelle, kein separates ib_quick_orders)
+- UX-Spec: Component `quick_order_preview` Tier 2, Journey 6
+- Dependency: Story 11.1 (Form), Story 1.6 (MCP-Client fuer IB-Connection), Story 2.1 (trades-Tabelle)
 
 ## Dev Agent Record
 

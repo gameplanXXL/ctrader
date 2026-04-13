@@ -21,7 +21,7 @@ so that I know when to wait and when to act.
   - [ ] Transient: 1100 (Connectivity lost), 1101 (Data farm disconnected), 2104/2106 (connection OK), network errors
   - [ ] Terminal: 201 (Order rejected), 202 (Margin), 110 (Invalid symbol), 200 (Security not found), etc.
 - [ ] Task 2: Retry-Logic (AC: 1)
-  - [ ] In `app/services/ib_order.py` — `place_bracket_order` mit Retry-Decorator
+  - [ ] In `app/clients/ib.py` — `place_bracket_order` mit Retry-Decorator (Architecture Decision #9: Bracket-Order lebt in clients/ib.py, nicht in einem separaten services/ib_order.py)
   - [ ] Max 3 Retries, Exponential Backoff 1s/2s/4s
   - [ ] Nur bei transient errors
 - [ ] Task 3: Terminal-Error-UI (AC: 2)
@@ -100,12 +100,13 @@ async def place_bracket_order_with_retry(...):
 - Success-Toast: auto-dismiss 3s, gruen
 - Beide via toast-macro aus Story 3.1
 
-**File Structure:**
+**File Structure (laut Architecture Decision #9):**
 ```
 app/
 ├── services/
-│   ├── error_classifier.py     # NEW
-│   └── ib_order.py             # UPDATE - retry wrapper
+│   └── error_classifier.py     # NEW - klassifiziert IB-Errors transient vs terminal
+├── clients/
+│   └── ib.py                   # UPDATE - place_bracket_order() mit Retry-Wrapper
 └── templates/
     └── components/
         └── toast.html          # EXISTS (Story 3.1)
@@ -113,7 +114,8 @@ app/
 
 ### References
 
-- PRD: FR58
+- PRD: FR58, NFR-I3 (Rate-Limit-Backoff)
+- Architecture: Decision #9 (clients/ib.py enthaelt Bracket-Order-Logik inkl. Retry)
 - UX-Spec: UX-DR52 (Error Toast), UX-DR51 (Success Toast)
 - Dependency: Story 11.2 (Bracket-Order), Story 3.1 (Toast-Component)
 

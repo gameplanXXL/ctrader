@@ -17,15 +17,18 @@ so that I don't need to manually enter trade details after placing an order.
 
 - [ ] Task 1: Extended Quick-Order-Form (Story 11.1 Update)
   - [ ] Zusaetzliche Felder fuer Auto-Tagging: Strategy, Trigger-Source, Horizon
-  - [ ] Strategy aus strategies-Tabelle (post Epic 6)
-  - [ ] Trigger-Source aus taxonomy
+  - [ ] Strategy aus strategies-Tabelle (post Epic 6 — Cross-Epic-Dependency, akzeptabel weil Epic 6 vor Epic 11)
+  - [ ] Trigger-Source aus taxonomy.yaml
+  - [ ] **Auto-Tagging passiert bei Submission** (nicht erst bei Fill): Die `trades`-Row wird mit `trigger_spec`, `strategy_id`, `horizon` direkt beim INSERT in Story 11.2 befuellt
 - [ ] Task 2: ib_async Order-Status-Events (AC: 1)
-  - [ ] Subscribe auf ib.orderStatusEvent fuer Quick-Orders
-  - [ ] Update `ib_quick_orders.status` basierend auf Event
-  - [ ] Mapping: Submitted/Filled/PartiallyFilled/Rejected/Cancelled → order_status enum
-- [ ] Task 3: Auto-Trade-Creation bei Fill (AC: 2)
-  - [ ] Bei FILLED → INSERT in trades-Tabelle
-  - [ ] trigger_spec aus Quick-Order-Form-Daten bauen:
+  - [ ] Subscribe auf `ib.orderStatusEvent` fuer Quick-Orders (orderRef-Prefix `ctrader-quick-`)
+  - [ ] **Update `trades.order_status`** basierend auf Event (nicht ib_quick_orders — die Tabelle existiert nicht, Architecture Decision C1)
+  - [ ] Mapping: Submitted/Filled/PartiallyFilled/Rejected/Cancelled → `order_status_enum`
+- [ ] Task 3: Auto-Merge bei Fill (AC: 2)
+  - [ ] Bei FILLED → `UPDATE trades SET order_status='filled', entry_price=<avgFillPrice>, opened_at=<fillTime>, perm_id=<permId> WHERE order_ref=<orderRef>`
+  - [ ] **Kein INSERT** — die Row existiert bereits seit Submission (Story 11.2)
+  - [ ] Der Merge-Flow via `order_ref` ist das Herzstueck von Decision C1 (Trade ist Trade, egal welcher Lifecycle-Status)
+  - [ ] `trigger_spec` wurde bereits bei Submission gefuellt:
     ```json
     {
       "trigger_type": "manual_quick_order",
@@ -36,14 +39,15 @@ so that I don't need to manually enter trade details after placing an order.
       "followed": true
     }
     ```
-  - [ ] strategy_id aus Form
 - [ ] Task 4: Status-Display im Journal (AC: 1)
-  - [ ] Journal zeigt Quick-Orders mit passendem status_badge
-  - [ ] Bei "submitted" noch keine Trade-Zeile (nur in ib_quick_orders)
-  - [ ] Bei "filled" → normale trade-Zeile + Link zum quick-order
+  - [ ] Journal zeigt Quick-Orders sofort als `trades`-Zeile mit `status_badge` (submitted/filled/partial/rejected/cancelled)
+  - [ ] Bei `submitted` zeigt die Zeile noch kein P&L (nur Limit-Preis + Trailing-Stop)
+  - [ ] Bei `filled` erscheint die normale Trade-Info (entry_price, opened_at, etc.)
+  - [ ] Bei `rejected` / `cancelled` bleibt die Zeile als Provenance-Eintrag sichtbar (filterbar ueber Status-Facette)
 - [ ] Task 5: Partial-Fill Handling
-  - [ ] Mehrere Trade-Zeilen moeglich bei mehreren partial fills
-  - [ ] Aggregation in der UI
+  - [ ] Bei `PartiallyFilled` → `UPDATE trades SET order_status='partial', quantity=<filledQty>, entry_price=<avgFillPrice>` (average der bisherigen Fills)
+  - [ ] Bei letztem Fill → `order_status='filled'`, vollstaendige Quantity
+  - [ ] Keine separaten Trade-Rows pro Fill — alles in derselben Row via Update
 
 ## Dev Notes
 
@@ -64,8 +68,9 @@ so that I don't need to manually enter trade details after placing an order.
 
 Das sind 7 Felder. Grenzt an die Max-6-Regel (UX-DR62) — aber vertretbar, da Auto-Tagging spaeter Zeit spart.
 
-**ib_async Status-Event-Listener:**
+**ib_async Status-Event-Listener (Merge-Flow via order_ref):**
 ```python
+# In app/services/order_service.py — registriert beim FastAPI-Lifespan-Start
 ib.orderStatusEvent += on_order_status_change
 
 async def on_order_status_change(trade):
@@ -73,55 +78,88 @@ async def on_order_status_change(trade):
         return  # Not our order
 
     order_ref = trade.order.orderRef
+    ib_status = trade.orderStatus.status  # "Submitted", "Filled", "PartiallyFilled", "Cancelled", ...
 
-    # Update ib_quick_orders
-    await db_pool.execute(
-        "UPDATE ib_quick_orders SET status = $1, updated_at = NOW() WHERE order_ref = $2",
-        map_ib_status(trade.orderStatus.status),
-        order_ref,
-    )
+    new_status = map_ib_status_to_enum(ib_status)
 
-    # If filled → create trade row
-    if trade.orderStatus.status == "Filled":
-        quick_order = await get_quick_order_by_ref(order_ref)
-        await create_trade_from_quick_order(quick_order, trade.orderStatus)
+    # UPDATE trades via order_ref — Merge-Flow (Decision C1)
+    if new_status == "filled":
+        await db_pool.execute("""
+            UPDATE trades
+            SET order_status = $1,
+                entry_price = $2,
+                opened_at = NOW(),
+                perm_id = $3
+            WHERE order_ref = $4
+        """,
+            new_status,
+            trade.orderStatus.avgFillPrice,
+            str(trade.orderStatus.permId),
+            order_ref,
+        )
+    else:
+        await db_pool.execute(
+            "UPDATE trades SET order_status = $1 WHERE order_ref = $2",
+            new_status, order_ref,
+        )
 ```
 
-**Auto-Trade-Creation:**
+**Auto-Tagging bei Submission (bereits in Story 11.2 implementiert):**
+
+Die `trigger_spec`, `strategy_id` und `horizon` werden **direkt beim INSERT** in Story 11.2 gesetzt. Story 11.3 fuegt nur den Status-Update-Flow hinzu. Kein separater "Create Trade from Quick Order"-Flow — der Trade **ist** die Quick-Order-Row, die bei Submission entsteht.
+
 ```python
-async def create_trade_from_quick_order(qo, status):
+# In app/services/order_service.py (Task 2 aus Story 11.2 + erweitert in Story 11.3)
+async def submit_quick_order(spec: QuickOrderRequest) -> OrderSubmitResult:
+    order_ref = f"ctrader-quick-{uuid4().hex[:12]}"
+
     trigger_spec = {
         "trigger_type": "manual_quick_order",
-        "horizon": qo.horizon,  # from form
+        "horizon": spec.horizon,
         "entry_reason": "Quick Order platziert aus ctrader",
         "source": "manual",
         "followed": True,
     }
-    await db_pool.execute("""
+
+    # INSERT in trades mit vollstaendigen Metadaten (Auto-Tagging)
+    trade_id = await db_pool.fetchval("""
         INSERT INTO trades (
-            symbol, asset_class, side, quantity, entry_price,
-            opened_at, broker, perm_id, trigger_spec, strategy_id
-        ) VALUES ($1, 'stock', $2, $3, $4, NOW(), 'ib', $5, $6, $7)
+            symbol, asset_class, side, quantity,
+            limit_price, trailing_stop_amount, trailing_stop_unit,
+            order_ref, order_status, submitted_at,
+            trigger_spec, strategy_id, horizon, source
+        )
+        VALUES ($1, 'stock', $2, $3, $4, $5, $6, $7, 'submitted', NOW(), $8, $9, $10, 'ib')
+        ON CONFLICT (order_ref) DO NOTHING
+        RETURNING id
     """,
-        qo.symbol, qo.side, qo.quantity, status.avgFillPrice,
-        str(status.permId), trigger_spec, qo.strategy_id,
+        spec.symbol, spec.side, spec.quantity,
+        spec.limit_price, spec.trailing_amount, spec.trailing_unit,
+        order_ref, trigger_spec, spec.strategy_id, spec.horizon,
     )
+
+    # Bracket-Order an IB senden via clients/ib.py
+    await ib_client.place_bracket_order(...)
+
+    return OrderSubmitResult(trade_id=trade_id, order_ref=order_ref, ...)
 ```
 
 **File Structure:**
 ```
 app/
 ├── services/
-│   └── quick_order_sync.py           # NEW - status tracking
+│   └── order_service.py              # UPDATE - orderStatusEvent-Handler + Merge-Logik (Decision A1)
 └── templates/
-    └── fragments/
-        └── quick_order_form.html     # UPDATE - tagging fields
+    └── components/
+        └── quick_order_form.html     # UPDATE - tagging fields (Strategy, Trigger-Source, Horizon)
 ```
 
 ### References
 
 - PRD: FR56, FR57, FR17
-- Dependency: Story 11.1 (Form), Story 11.2 (Order-Placement), Story 6.1 (strategies)
+- Architecture: Decision #9 (Merge-Flow via order_ref, kein separates ib_quick_orders-Schema), Decision C1 (erweiterte trades-Tabelle), Decision A1 (order_service)
+- UX-Spec: Component `quick_order_form` Tier 2 (Form-Felder inkl. Auto-Tagging)
+- Dependency: Story 11.1 (Form), Story 11.2 (INSERT mit trigger_spec), Story 6.1 (strategies-Tabelle fuer Dropdown)
 
 ## Dev Agent Record
 

@@ -16,10 +16,10 @@ so that I can trade directly from ctrader without switching to TWS.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Quick-Order-Form Template
-  - [ ] `app/templates/fragments/quick_order_form.html`
+- [ ] Task 1: Quick-Order-Form Template (AC: 1, 2)
+  - [ ] `app/templates/components/quick_order_form.html` (Tier 2, Woche 3)
   - [ ] Felder: Symbol (readonly wenn prefilled), Side-Toggle (Buy/Sell), Quantity (int), Limit-Preis (decimal), Trailing-Stop-Amount + Unit-Toggle ($/%)
-  - [ ] Auto-focus erstes Feld
+  - [ ] Auto-focus erstes Feld, Tab-Navigation durch alle Felder
 - [ ] Task 2: Quick-Order-Trigger
   - [ ] Button in Trade-Drilldown und Journal-Zeile: "Quick Order"
   - [ ] Watchlist-Context noch Phase 2 (nur Journal fuer MVP)
@@ -35,6 +35,10 @@ so that I can trade directly from ctrader without switching to TWS.
   - [ ] Preview des berechneten initialen Stop-Levels (fuer Bestaetigungs-UI Story 11.2)
 - [ ] Task 6: Form-Submission → Bestaetigungs-Schritt (Story 11.2)
   - [ ] POST leitet zu Confirmation-Viewport weiter, nicht direkt Order-Platzierung
+- [ ] Task 7: Kill-Switch-Warnbanner bei aktivem Regime (UX-Hinweis)
+  - [ ] Wenn Regime-Snapshot (Story 9.1) F&G < 20 zeigt: gelber Warnbanner oberhalb des Formulars
+  - [ ] Text: "⚠ Aktuelles Regime: Fear & Greed = {value}, Bot-Strategien pausiert — Quick-Order ist nicht blockiert"
+  - [ ] **Kein Block** der Order-Platzierung (Kill-Switch-Exemption fuer manuelle Quick-Orders, siehe FR42 und Architecture Decision #9)
 
 ## Dev Notes
 
@@ -78,21 +82,24 @@ GET /trades/42/quick-order → Quick-Order-Form mit symbol=AAPL prefilled
 </div>
 ```
 
-**File Structure:**
+**File Structure (laut Architecture Decision #9 + B2):**
 ```
 app/
 ├── routers/
-│   └── quick_order.py          # NEW - /trades/{id}/quick-order, etc.
+│   └── trades.py               # UPDATE - neue Endpoints: GET /trades/quick-order/form, POST /trades/quick-order/preview
 └── templates/
-    └── fragments/
-        └── quick_order_form.html  # NEW
+    └── components/
+        └── quick_order_form.html  # NEW - Tier-2-Component (Woche 3)
 ```
+
+**Architektur-Entscheidung (Decision B2):** Die Quick-Order-Endpoints liegen unter `routers/trades.py` (Erweiterung), nicht in einem separaten `routers/quick_order.py`. Begründung: UI-Mental-Model "Trade aus Journal aufgeben", URL bleibt im Journal-Bereich.
 
 ### References
 
-- PRD: FR53
-- UX-Spec: UX-DR58, UX-DR59, UX-DR62
-- Dependency: Story 2.4 (Trade-Drilldown mit Button)
+- PRD: FR53, FR42 (Kill-Switch-Exemption fuer Quick-Orders)
+- Architecture: Decision #9 (IB Quick-Order), Decision B2 (Router unter trades.py)
+- UX-Spec: UX-DR58, UX-DR59, UX-DR62, Journey 6 (Quick-Order-Flow), Component `quick_order_form` Tier 2
+- Dependency: Story 2.4 (Trade-Drilldown mit Button), Story 9.1 (Regime-Snapshot fuer Warnbanner)
 
 ## Dev Agent Record
 
