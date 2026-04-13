@@ -22,7 +22,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install Python deps via uv (respects uv.lock).
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock ./
 RUN uv sync --frozen --no-dev
 
 # ---------------------------------------------------------------------------

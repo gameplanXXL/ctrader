@@ -125,7 +125,30 @@ Claude Opus 4.6 (1M context), bmad-dev-story workflow, 2026-04-13.
 - `docker compose config --quiet` erste Ausfuehrung: `.env not found` Error → `env_file` mit `required: false` in docker-compose.yml hinzugefuegt.
 - `uv run ruff check .` erste Ausfuehrung: 59 Findings, davon ~56 in `.claude/` (BMad-Skill-Scripts) und 3 echte UP037-Findings in unserem Code → `extend-exclude` in ruff-Config gesetzt + Type-Annotations in app/db/pool.py, app/main.py, tests/conftest.py auf direkte Imports aus collections.abc umgestellt.
 - `uv run ruff format --check .` zweite Ausfuehrung: `tests/unit/test_logging.py` musste einmal reformatiert werden (`uv run ruff format`).
+- **`docker compose up -d --build` erste Ausfuehrung:** Build-Error weil `.dockerignore` README.md ausschliesst aber Dockerfile versuchte sie zu kopieren. Fix: `COPY pyproject.toml uv.lock README.md ./` → `COPY pyproject.toml uv.lock ./`. README.md ist semantisch ein Dev-Artefakt und gehoert nicht ins Runtime-Image.
 - Alle Checks grün nach obigen Fixes.
+
+### Runtime Verification (post-commit)
+
+Am 2026-04-13 nach dem ersten Commit durch `docker compose up -d --build + curl`-Smoke-Probe verifiziert. Der Build dauert ~90 Sekunden (erstmalig), Subsequent-Builds ~2 Sekunden (Docker Layer Cache).
+
+**Beobachteter Runtime-Log der FastAPI-App:**
+```
+ctrader-1  | INFO:     Started server process [1]
+ctrader-1  | INFO:     Waiting for application startup.
+ctrader-1  | {"version": "0.1.0", "environment": "development", "host": "127.0.0.1", "port": 8000, "event": "app.startup", "level": "info", "timestamp": "2026-04-13T17:39:52.559112Z"}
+ctrader-1  | {"min_size": 2, "max_size": 10, "event": "db.pool.creating", "level": "info", "timestamp": "2026-04-13T17:39:52.559199Z"}
+ctrader-1  | {"event": "db.pool.created", "level": "info", "timestamp": "2026-04-13T17:39:52.586352Z"}
+ctrader-1  | INFO:     Application startup complete.
+ctrader-1  | INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+ctrader-1  | INFO:     172.18.0.1:53596 - "GET / HTTP/1.1" 200 OK
+```
+
+Beobachtete HTTP-Response: `{"app":"ctrader","version":"0.1.0","status":"ok","environment":"development"}` mit Status 200.
+
+Beobachtetes Port-Binding auf dem Host: `127.0.0.1:8000->8000/tcp` (NFR-S2 verifiziert — nicht nur als Unit-Test, sondern in der echten Runtime).
+
+Der asyncpg-Pool hat sich in **27 Millisekunden** gegen den postgres:16-alpine-Container verbunden (Subtraktion der beiden Timestamps). Damit ist AC #1 nicht nur strukturell (via Mock-Fixture in `tests/conftest.py`) sondern auch end-to-end verifiziert.
 
 ### Completion Notes List
 
