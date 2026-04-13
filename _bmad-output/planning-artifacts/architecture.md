@@ -33,13 +33,13 @@ _This document builds collaboratively through step-by-step discovery. Sections a
 
 **Functional Requirements:**
 
-58 FRs in 9 Capability-Areas, die drei architektonische Schichten bilden:
+62 FRs in 10 Capability-Areas, die drei architektonische Schichten bilden:
 
 1. **Data Ingestion, Order Placement & Persistence (FR1–7, FR14–18b, FR49–52, FR53–58):** Zwei Broker-Datenquellen (IB Flex XML + Live-Stream, cTrader Protobuf), **IB Quick-Order-Submission via `ib_async` Bracket Orders mit Trailing Stop-Loss (Aktien-only)**, eine Taxonomie-Quelle (`taxonomy.yaml`), ein MCP-Contract-Snapshot, und Scheduled Jobs für Nightly-Reconciliation, Regime-Snapshots und Backups. Zentral: JSONB `trigger_spec` als strukturiertes Provenance-Schema. **Architektur-Implikation:** Broker-Abstraktionsschicht, idempotente Ingestion-Pipeline (mit `orderRef`-basierter Order-Idempotenz für Quick-Orders), PostgreSQL JSONB als First-Class-Concern, dedizierter `order_service` für Order-Lifecycle.
 
 2. **Business Logic & Orchestration (FR25–32, FR33–40, FR41–48):** Approval-Pipeline als State-Machine mit technisch erzwungenen Gates (Rita/Cassandra RED-Blockade), Strategy-Lifecycle-Management (active/paused/retired mit Bot-Execution-Enforcement), Regime-Kill-Switch mit Horizon-Bewusstsein (Bot-Strategien only — manuelle Quick-Orders sind exempt), Gordon-Trend-Loop mit Diff-Logik. **Architektur-Implikation:** Explizites State-Machine-Pattern für Proposals, Service-Layer für Strategy- und Regime-Management, Event-basiertes Audit-Logging.
 
-3. **Presentation & Query (FR8–13c, FR19–24):** Unified Journal mit Facettenfilter (8 Pflicht-Facetten), Drilldown mit MCP-Side-by-Side, P&L-Kalender, MAE/MFE, Aggregations-Queries, Strategy-Review mit Expectancy-Kurven und Horizon-Gruppierung, **Quick-Order-Formular inline aus Journal/Watchlist**. **Architektur-Implikation:** Server-Rendered HTML via HTMX-Fragmente, JSONB-basierte Facetten-Queries, MCP-Result-Caching mit Staleness-Anzeige, Template-basierter `trigger_spec`-Renderer, Quick-Order als HTMX-Modal/Inline-Fragment.
+3. **Presentation & Query (FR8–13c, FR19–24, FR59–62):** Unified Journal mit Facettenfilter (8 Pflicht-Facetten), Drilldown mit MCP-Side-by-Side, P&L-Kalender, MAE/MFE, Aggregations-Queries, Strategy-Review mit Expectancy-Kurven und Horizon-Gruppierung, **Quick-Order-Formular inline aus Journal/Watchlist**, **Power-User-UX (Command Palette, CSV-Export, Query-Presets, bookmarkbare URLs)**. **Architektur-Implikation:** Server-Rendered HTML via HTMX-Fragmente, JSONB-basierte Facetten-Queries, MCP-Result-Caching mit Staleness-Anzeige, Template-basierter `trigger_spec`-Renderer, Quick-Order als HTMX-Modal/Inline-Fragment, Command Palette als Alpine.js-Overlay, URL-State via `hx-push-url`.
 
 **Non-Functional Requirements:**
 
@@ -885,7 +885,7 @@ uv run pytest tests/integration/
 
 ### Requirements Coverage Validation ✅
 
-**Alle 58 FRs architektonisch abgedeckt:**
+**Alle 62 FRs architektonisch abgedeckt:**
 
 | Capability Area | FRs | Abdeckung |
 |---|---|---|
@@ -898,6 +898,7 @@ uv run pytest tests/integration/
 | Regime & Trends | FR41–48 | `regime_service.py`, `jobs/gordon_weekly.py`, `jobs/regime_snapshot.py` |
 | Operations & Health | FR49–52 | `jobs/scheduler.py`, `routers/settings.py`, `db/migrate.py`, `jobs/backup.py` |
 | **IB Quick-Order** (Aktien + Trailing Stop) | **FR53–58** | **`order_service.py`, `clients/ib.py` (Bracket-Order-Erweiterung), `routers/trades.py` (Quick-Order-Endpoint), `templates/components/quick_order_form.html`, `models/order.py`** |
+| **Power-User-UX** (Command Palette, CSV, URL-State) | **FR59–62** | **`templates/components/command_palette.html` (Alpine.js), `routers/trades.py` (CSV-Export, Query-Presets), `db/queries/query_presets.py`, HTMX `hx-push-url` in `routers/trades.py`** |
 
 **Alle NFR-Kategorien adressiert:**
 
@@ -932,7 +933,7 @@ uv run pytest tests/integration/
 ### Architecture Completeness Checklist
 
 **✅ Requirements Analysis**
-- [x] Projekt-Kontext analysiert (58 FRs, NFRs, UX-Spec)
+- [x] Projekt-Kontext analysiert (62 FRs, NFRs, UX-Spec)
 - [x] Komplexität bewertet (Medium-High)
 - [x] Technische Constraints identifiziert
 - [x] Cross-Cutting Concerns kartiert (6 identifiziert)

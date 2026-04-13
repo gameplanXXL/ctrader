@@ -452,11 +452,11 @@ UX-DR105: Daten-Export fuer alle Primary Views: Journal → CSV, Strategy → CS
 
 UX-DR106: Bookmark/Save-Query via Star-Icon: Benannte Presets (z.B. "Satoshi Overrides Lost"). Toast-Confirmation. Presets in Command Palette.
 
-UX-DR107: DuckDB-Export als downloadbares Backup in Settings. Externe Analyse ohne Application-Lock-in.
+UX-DR107: PostgreSQL-Backup (via pg_dump) als downloadbares Artefakt in Settings. Externe Analyse ohne Application-Lock-in. (Geaendert am 2026-04-13: Storage von DuckDB auf PostgreSQL umgestellt.)
 
 UX-DR108: URL-basiertes Query-Sharing: Jede Journal-View mit aktiven Filtern produziert shareable URL.
 
-UX-DR109: NICHT implementieren im MVP: Trade-Replay-Animation, Trade-Screenshots-Integration, Multi-Agent-Selection-UI (agent_id als read-only).
+UX-DR109: NICHT implementieren im MVP: Trade-Replay-Animation, Multi-Agent-Selection-UI (agent_id als read-only). (Geaendert am 2026-04-13: Screenshot-Upload wurde durch dynamische OHLC-Charts via lightweight-charts ersetzt — siehe FR13c und Story 4.5.)
 
 UX-DR110: NICHT implementieren im MVP: Tiltmeter. Stattdessen einfacheres Mistake-Tag-System.
 

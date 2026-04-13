@@ -800,7 +800,7 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 ### 7. Market Regime & Trend Awareness
 
 - **FR41:** Das System erzeugt täglich einen Regime-Snapshot mit Fear & Greed, VIX, und Per-Broker-P&L.
-- **FR42:** Das System pausiert bei Fear & Greed < 20 automatisch alle Strategien mit Horizon ∈ {intraday, swing<5d} (horizon-bewusster Kill-Switch).
+- **FR42:** Das System pausiert bei Fear & Greed < 20 automatisch alle Strategien mit Horizon ∈ {intraday, swing<5d} (horizon-bewusster Kill-Switch). **Geltungsbereich:** Der Kill-Switch greift ausschließlich im Bot-Execution-Pfad (Epic 7/8). **Manuelle IB-Quick-Orders (FR53–58) sind vom Kill-Switch exempt** — sie sind bewusste manuelle Handlungen des Nutzers und werden nicht blockiert. Im Quick-Order-Formular erscheint bei aktivem Kill-Switch nur ein informativer Warnbanner, kein Block.
 - **FR43:** Das System pausiert Strategien mit längerem Horizon (swing≥5d, position) NICHT automatisch bei Fear & Greed-Drops.
 - **FR44:** Chef kann einen aktiven Kill-Switch manuell für einzelne Strategien überschreiben; das System dokumentiert jeden Override als Audit-Log-Eintrag "manual override of kill-switch".
 - **FR45:** Chef sieht den aktuellen Regime-Stand (F&G, VIX, pausierte Strategien durch Kill-Switch) auf einer Regime-Seite.
@@ -828,6 +828,7 @@ Diese Liste ist der **Capability-Contract** für ctrader. Jede FR ist testbar un
 - **Nur Aktien.** Options-Order-Platzierung ist Phase 2 (erfordert vollständige Kontraktspezifikation mit Strike/Expiry/Right/Multiplier und ein eigenes UI).
 - **Kein nachträgliches Editieren** von Order-Parametern (Stop-Loss-Anpassung etc.) aus ctrader. Dafür TWS direkt verwenden.
 - **Kein Take-Profit** als dritte Bracket-Leg. Trailing Stop-Loss ersetzt das — IB managed das Trailing serverseitig.
+- **Kill-Switch-Exemption:** Quick-Orders sind vom Regime-Kill-Switch (FR42) **ausgenommen**. Der Kill-Switch blockiert nur Bot-Execution, nicht manuelle Nutzer-Aktionen. Bei aktivem Kill-Switch zeigt das Quick-Order-Formular einen informativen Warnbanner ("⚠ Aktuelles Regime: Fear & Greed = 18, Bot-Strategien pausiert"), aber keinen Block.
 
 ### Power-User-UX (FR59–FR62) — nachträglich aus UX-Spec in PRD überführt am 2026-04-12
 

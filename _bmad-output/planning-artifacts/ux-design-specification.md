@@ -15,6 +15,8 @@ stepsCompleted:
   - step-13-responsive-accessibility
   - step-14-complete
 workflowCompletedAt: '2026-04-12'
+lastUpdated: '2026-04-13'
+lastUpdateReason: 'Post-IR-Cleanup — Journey 6 (IB Quick-Order) ergänzt; 3 neue Components (trade_chart, quick_order_form, quick_order_preview) im Tier-2-Inventar; stale DuckDB/Screenshot-Referenzen auf PostgreSQL/lightweight-charts umgestellt'
 inputDocuments:
   - _bmad-output/planning-artifacts/product-brief-ctrader.md
   - _bmad-output/planning-artifacts/product-brief-ctrader-distillate.md
@@ -256,7 +258,7 @@ ctrader zieht Inspiration sowohl aus bestehenden Trading-Journal-Tools (deren UX
 
 **Pattern 1 — Command Palette (`Ctrl+K`) als universelle Navigation.** Von Linear. Das einzige JavaScript-Feature-Investment, das für den MVP gerechtfertigt ist, weil es die Review-Speed-Metrik direkt adressiert. Fuzzy-Search über alle Routen, Strategien, Facetten-Presets und Trade-IDs. Technisch via Alpine.js realisierbar, keine SPA-Architektur nötig.
 
-**Pattern 2 — Sparklines neben jeder Metrik.** Von Datadog/Grafana. Jede Strategy-Metrik in der Review-Liste bekommt einen Mini-Trend-Chart neben der Zahl. Verwandelt Momentaufnahmen in Zeitreihen. Technisch via `lightweight-charts` oder Pure-SVG.
+**Pattern 2 — Sparklines neben jeder Metrik.** Von Datadog/Grafana. Jede Strategy-Metrik in der Review-Liste bekommt einen Mini-Trend-Chart neben der Zahl. Verwandelt Momentaufnahmen in Zeitreihen. Technisch als Pure-SVG (Sparklines) — nicht zu verwechseln mit dem dedizierten OHLC-Chart für FR13c, der `lightweight-charts` nutzt (siehe Component `trade_chart` in Tier 2).
 
 **Pattern 3 — Dead Man's Switch für MCP-Outages und stale Daten.** Von Datadog/Grafana. Stale-Daten werden **prominent** angezeigt, nicht subtil — als rotbraune Banner oder "Stale"-Badges in der betroffenen View. Nicht als Fehler, sondern als ehrliche Information. Operationalisiert Prinzip 5 aus Step 3 (Graceful Degradation als erste Klasse).
 
@@ -266,7 +268,7 @@ ctrader zieht Inspiration sowohl aus bestehenden Trading-Journal-Tools (deren UX
 
 **Pattern 6 — Metriken-Paarung statt Einzel-Werten.** Von Tradervue. Jede Kernmetrik wird neben ihrer Gegenmetrik gezeigt: Expectancy neben Drawdown, Winrate neben Profit-Factor, MFE neben MAE. Die UX erzwingt die Mehrfach-Perspektive.
 
-**Pattern 7 — Lokale Datensouveränität.** Von Obsidian. DuckDB-Datei ist extern lesbar (mit DuckDB-CLI oder Python), Export-Funktionen (CSV, JSON) sind Pflicht pro View. ctrader ist kein Walled Garden.
+**Pattern 7 — Lokale Datensouveränität.** Von Obsidian. PostgreSQL läuft auf Chefs eigener Instanz, Datenbank ist direkt per `psql`/`pgAdmin` zugreifbar, `pg_dump`-Backups werden lokal gespeichert, Export-Funktionen (CSV, JSON) sind Pflicht pro View. ctrader ist kein Walled Garden. (Geändert am 2026-04-13: Storage-Umstellung von DuckDB auf PostgreSQL.)
 
 ### Anti-Patterns to Avoid
 
@@ -301,7 +303,7 @@ ctrader zieht Inspiration sowohl aus bestehenden Trading-Journal-Tools (deren UX
 - P&L-Kalender von TraderSync, aber als doppelte Einstiegs-Navigation neben Facetten-Suche, nicht nur als Hero-View
 - MFE/MAE-Darstellung von Tradervue, aber integriert in den Trade-Drilldown, nicht als eigene Reports-Seite
 - Monte-Carlo-Philosophie von Edgewonk, aber im MVP reicht die Expectancy-Konfidenzintervall-Anzeige; voller Simulator ist Phase 2
-- Lokale Datensouveränität von Obsidian, aber als DuckDB-Datei + Export-Buttons, nicht als Plugin-System
+- Lokale Datensouveränität von Obsidian, aber als PostgreSQL auf Chefs eigener Instanz + `pg_dump`-Backups + Export-Buttons, nicht als Plugin-System
 
 **Was explizit nicht tun:**
 
@@ -686,7 +688,7 @@ ctrader ist ein Single-User-Tool für Chef ohne dokumentierte Accessibility-Bed�
 - **Vollständige Keyboard-Navigation** — jede Aktion per Tastatur erreichbar (operationalisiert Prinzip 3 aus Step 3)
 - **Klar sichtbare Focus-States** — 2px `--accent` Outline, nie unterdrückt
 - **Semantic HTML** — `<button>` für Aktionen, `<a>` für Navigation, `<table>` mit `<th>` für Daten. Keine `<div onclick=>`
-- **Alt-Texte für funktionale Bilder** (Screenshots in Trade-Drilldowns). Dekorative Icons mit `aria-hidden="true"`
+- **Aria-Labels für funktionale Charts** (OHLC-Charts im Trade-Drilldown via `lightweight-charts` — FR13c — mit `role="img"` und `aria-label` mit Trend-Beschreibung). Dekorative Icons mit `aria-hidden="true"`. (Geändert am 2026-04-13: FR13c wurde von Screenshot-Upload auf dynamische lightweight-charts-OHLC-Charts umgestellt.)
 - **Explizite Formular-Labels** via `<label for>` oder `aria-label`, keine Platzhalter-nur-Inputs
 
 **Was wir nicht tun (bewusst):**
@@ -894,6 +896,54 @@ flowchart TD
 
 **Klick-Zählung:** 6 Klicks pro Trade (Widget + Trade + 3 Dropdowns + Enter). Bei 3 Trades/Tag: **~3 Minuten Tagging-Ritual**.
 
+### Journey 6 — IB Quick-Order mit Trailing Stop-Loss — Der Aktive-Trader-Flow
+
+**Modus:** Aktiver Trader. Chef hat seine Analyse abgeschlossen (Viktor-Einschätzung gelesen, Chart geprüft, Trigger-Spec im Kopf) und will einen Aktien-Swing-Trade bei Interactive Brokers aufsetzen — inklusive automatischem Trailing Stop-Loss, ohne dafür in die TWS wechseln zu müssen.
+
+**Klick-Budget: ≤ 6 Klicks pro Order.**
+**Keyboard-Alternative: Ctrl+K → "quick order" + Symbol + 4 Felder + Enter + Bestätigung.**
+
+```mermaid
+flowchart TD
+    A[Chef ist im Journal oder auf Watchlist] --> B[Klick Quick Order neben Asset]
+    B --> C[Inline-Formular oeffnet sich: Symbol vorausgefuellt]
+    C --> D[Chef fuellt Side Buy Sell + Quantity + Limit + Trailing Stop aus]
+    D --> E[Klick Vorschau]
+    E --> F[Bestaetigungs-Zusammenfassung: alle Zahlen ohne Scrollen]
+    F --> G{Alles korrekt?}
+    G -->|Ja| H[Klick Order senden]
+    G -->|Nein| D
+    H --> I[HTMX POST /trades/quick-order]
+    I --> J[ib_async sendet Bracket: Parent Limit + Child Trailing Stop]
+    J --> K{Order akzeptiert?}
+    K -->|Ja| L[Trade erscheint im Journal: status=submitted, auto-tagged]
+    K -->|Nein transient| M[Auto-Retry max 3x Backoff]
+    K -->|Nein terminal| N[Error-Toast: Grund + Aktions-Hinweis]
+    M --> K
+    L --> O[Toast: Order platziert - Trailing Stop serverseitig bei IB]
+```
+
+**Kritischer Moment:** Schritt F (Bestätigungs-Zusammenfassung). **Alle entscheidungsrelevanten Zahlen in einem Viewport, ohne Scrollen** (NFR-R3b): Symbol, Side, Quantity, Limit, Trailing-Stop-Amount, initiales Stop-Level (berechnet), geschätztes Risiko in $. Trailing-Stop-Betrag ist **prominent** — das ist der Sinn dieses Features, nicht eine Nebensache. Keine One-Click-Platzierung; der Bestätigungs-Schritt ist verpflichtend.
+
+**Scope-Grenzen dieser Journey (für die UI-Spezifikation bindend):**
+- **Nur Aktien** (Options Phase 2) — das Formular bietet keine Strike/Expiry/Right-Felder
+- **Kein nachträgliches Editieren** von Stop-Loss-Parametern aus ctrader — für Anpassungen Chef direkt in TWS
+- **Kein Take-Profit** als dritte Bracket-Leg — Trailing Stop-Loss ersetzt das (IB serverseitig)
+- **Kill-Switch-Exemption:** Bei aktivem Regime-Kill-Switch (Fear & Greed < 20) zeigt das Formular einen **informativen Warnbanner**, aber keinen Block. Chef hat aktiv entschieden zu handeln.
+
+**Error-Paths:**
+- **Transient (Netzausfall, TWS-Reconnect):** Silent Auto-Retry mit Exponential Backoff (1s → 60s, max 3 Retries). Nur bei finalem Fehler erscheint ein Error-Toast.
+- **Terminal (Margin-Fehler, ungültiges Symbol, Markt geschlossen):** Persistierender Error-Toast mit spezifischem Grund (rot, manuell zu schließen) — Chef muss die Ursache beheben, bevor er es erneut versucht.
+- **Idempotenz:** Bei Retry nach TWS-Reconnect wird `orderRef` als Idempotenz-Key wiederverwendet — kein Doppel-Trade (NFR-R3a).
+
+**Klick-Zählung:** 5–6 Klicks pro Order (Quick-Order-Trigger + 4 Felder + Vorschau + Bestätigung). Bei Power-User-Flow via Command Palette: 4 Klicks (Ctrl+K + Tab durch Felder + Enter + Enter).
+
+**Requirements, die diese Journey freisetzt:**
+- Components `quick_order_form` und `quick_order_preview` (Tier 2, siehe Component-Inventar)
+- HTMX-Endpoints `GET /trades/quick-order/form`, `POST /trades/quick-order/preview`, `POST /trades/quick-order`
+- Error-Toast-Varianten (transient vs terminal)
+- Kill-Switch-Warnbanner-Komponente (nicht blockierend)
+
 ### Journey 3 — Wöchentlicher Strategy-Review (kompakt)
 
 **Entry:** `/strategies` oder `Ctrl+K` → "strategies".
@@ -938,7 +988,7 @@ Wiederkehrende Mechaniken, extrahiert als Standards für alle Views:
 
 ### Design System Coverage
 
-Da ctrader ein **Handroll Design System** verwendet (Step 6), gibt es keine "verfügbar vs. custom"-Analyse. Alle 13 Components sind custom und werden als Jinja2-Makros implementiert. Die Frage ist nicht "was fehlt?", sondern "in welcher Reihenfolge bauen, und wie genau verhalten sie sich?".
+Da ctrader ein **Handroll Design System** verwendet (Step 6), gibt es keine "verfügbar vs. custom"-Analyse. Alle 16 Components sind custom und werden als Jinja2-Makros implementiert. Die Frage ist nicht "was fehlt?", sondern "in welcher Reihenfolge bauen, und wie genau verhalten sie sich?". (Geändert am 2026-04-13: 3 neue Components für IB Quick-Order und OHLC-Chart hinzugefügt — `trade_chart`, `quick_order_form`, `quick_order_preview`.)
 
 ### Component-Inventar — Detailspezifikation
 
@@ -968,6 +1018,12 @@ Da ctrader ein **Handroll Design System** verwendet (Step 6), gibt es keine "ver
 
 **`query_prose(facets)`** — Prosa-Query-Anzeige. States: Default (Facetten → Satz) | Empty ("Alle Trades") | Complex (> 4 Facetten → Kurzform). ~20–30 Template-Patterns. Accessibility: `role="status"`, `aria-live="polite"`.
 
+**`trade_chart(candles, markers, indicators)`** — Interaktiver OHLC-Chart für den Trade-Drilldown (FR13c). Rendering via `lightweight-charts` (TradingView Open-Source, Apache 2.0, ~35KB, lokal gehostetes JS-File in `app/static/js/lightweight-charts.standalone.production.js`). States: Default (Candles + Marker) | Loading (Opacity-Flash während `GET /trades/{id}/chart_data`) | Empty ("Chart-Daten nicht verfügbar" in `--text-muted`, siehe UX-DR55) | Partial (Candles ohne Indikatoren). **Marker-Styles:** Entry als grüner `arrowUp`-Marker unterhalb der Candle, Exit als roter `arrowDown`-Marker oberhalb. Beide mit dem Trade-Preis als Tooltip. Granularität automatisch nach Trade-Horizont (1m/5m für Intraday, 1h für Short-Swing, 1d für Long-Swing/Position). Chart-Farben aus Design-Tokens: `--status-green`/`--status-red` für Candles, `--accent` für Marker. Accessibility: `role="img"`, `aria-label="OHLC-Chart für {symbol} vom {entry_time} bis {exit_time}, {n_candles} Candles"`.
+
+**`quick_order_form(context)`** — Inline-Formular für IB Quick-Order (FR53). Öffnet sich inline aus Journal-Zeile oder Watchlist via HTMX (`hx-get="/trades/quick-order/form?symbol={symbol}"`, `hx-target="#quick-order-slot"`). Felder: Symbol (vorausgefüllt, readonly) | Side (Buy/Sell, Radio) | Quantity (Number) | Limit-Preis (Number, optional mit Current-Price-Hint) | Trailing-Stop-Amount (Number) + Trailing-Stop-Unit (Radio: absolut $/prozentual %). States: Default | Loading (Opacity-Flash) | Invalid (rote Border + Inline-Fehlermeldung) | Submitted (in `quick_order_preview` übergegangen). Kein One-Click-Submit — "Vorschau" ist Pflicht-Zwischenschritt. Keyboard: Tab durch Felder, Enter triggert Vorschau. Accessibility: `<fieldset>` mit `<legend>`, `<label>` für jedes Feld.
+
+**`quick_order_preview(order_spec)`** — Bestätigungs-Zusammenfassung vor Order-Absendung (FR54, NFR-R3b). **Kritisches Design-Kriterium: ALLE entscheidungsrelevanten Zahlen ohne Scrollen in einem Viewport.** Kein zweiter Dialog, kein versteckter Parameter. Grid-Layout mit: Symbol | Side | Quantity | Limit-Preis | Trailing-Stop-Betrag (prominent hervorgehoben mit `--accent`) | berechnetes initiales Stop-Level | geschätztes Risiko in $ (Quantity × (Limit - initiales Stop) für Buy). **Bei aktivem Regime-Kill-Switch** (Fear & Greed < 20): gelber Warnbanner oberhalb ("⚠ Aktuelles Regime: F&G = 18, Bot-Strategien pausiert — Quick-Order ist manuell und nicht blockiert"). Zwei Buttons: "Order senden" (primär, `--accent`) + "Zurück zum Formular" (sekundär). States: Default | Submitting (Spinner im Button, Button disabled) | Error (transient oder terminal, siehe Journey 6). Keyboard: Enter sendet, Escape schließt. Accessibility: `role="dialog"` mit `aria-labelledby`, Focus-Trap während Sichtbarkeit.
+
 #### Tier 3 — Woche 5–8 (Slice B)
 
 **`proposal_viewport(proposal, fundamental, risk_gate)`** — Approval-Drilldown. 3-Spalten-Layout. States: Default | Fundamental-Unavailable (Staleness) | Risk-Gate-RED (Approve disabled) | Approved (grau-out) | Rejected (grau-out). HTMX: Approve → `hx-post` → Toast + Status-Update. Accessibility: `aria-label` mit Proposal-Kontext, Buttons mit `aria-describedby`.
@@ -985,7 +1041,7 @@ Jeder Component wird als **Jinja2-Makro** in `app/templates/components/` impleme
 | **0** | `stat_card`, `status_badge`, `toast` | Skeleton-Startseite mit MCP-Handshake-Status |
 | **1** | `trade_row`, `facet_chip`, `facet_bar` | Statische Journal-Seite mit IB-Trades |
 | **2** | `sparkline`, `staleness_banner`, `calendar_cell` | Visuell vollständige Journal-Startseite, P&L-Kalender |
-| **3** | `trigger_spec_readable`, `query_prose` | Trade-Drilldown mit Provenance und Facetten-Query |
+| **3** | `trigger_spec_readable`, `query_prose`, `trade_chart`, `quick_order_form`, `quick_order_preview` | Trade-Drilldown mit Provenance, Facetten-Query, OHLC-Chart (FR13c) und IB Quick-Order (FR53–58) |
 | **5** | `proposal_viewport` | Approval-Dashboard und Drilldown |
 | **6** | `command_palette_item` | `Ctrl+K`-Navigation (Alpine.js) |
 
