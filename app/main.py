@@ -23,6 +23,7 @@ from app.config import settings
 from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
+from app.services.taxonomy import get_taxonomy, load_taxonomy
 
 
 @asynccontextmanager
@@ -43,6 +44,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         host=settings.host,
         port=settings.port,
     )
+
+    # Fail-fast: load and validate taxonomy.yaml at startup so a broken
+    # config aborts the boot rather than dying mid-request later (FR14).
+    get_taxonomy.cache_clear()
+    app.state.taxonomy = load_taxonomy()
+    # Prime the lru_cache for downstream `Depends(get_taxonomy)` consumers.
+    get_taxonomy()
 
     # Apply any pending schema migrations before the pool goes live. This
     # opens and closes its own one-shot connection so we never accidentally

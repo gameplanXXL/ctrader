@@ -1,0 +1,121 @@
+# ctrader Taxonomie — Quelle der Wahrheit fuer Dropdown-Optionen.
+#
+# Geladen beim App-Start (FR14). Aenderungen erfordern App-Restart.
+# Story 6.1 ergaenzt strategy_categories um user-definierte Strategien.
+
+trigger_types:
+  - id: news_event
+    label: News-Event
+    description: Reaktion auf Unternehmens- oder Marktmeldung
+  - id: technical_breakout
+    label: Technischer Ausbruch
+    description: Preis durchbricht Widerstand/Unterstuetzung
+  - id: technical_pullback
+    label: Technischer Pullback
+    description: Korrektur in Trend-Richtung
+  - id: viktor_signal
+    label: Viktor-Signal (SFA Aktien)
+    description: Empfehlung aus dem Viktor-Agent
+  - id: satoshi_signal
+    label: Satoshi-Signal (CFA Crypto)
+    description: Empfehlung aus dem Satoshi-Agent
+  - id: gordon_hot_pick
+    label: Gordon HOT-Pick
+    description: Eintrag aus dem woechentlichen Trend-Radar
+  - id: regime_shift
+    label: Regime-Shift
+    description: Reaktion auf F&G/VIX-Aenderung
+  - id: manual
+    label: Manuelle Idee
+    description: Diskretion ohne externes Signal
+
+exit_reasons:
+  - id: stop_hit
+    label: Stop-Loss getriggert
+  - id: target_hit
+    label: Profit-Target erreicht
+  - id: trailing_stop
+    label: Trailing-Stop ausgeloest
+  - id: time_stop
+    label: Zeit-Exit
+  - id: regime_kill_switch
+    label: Kill-Switch (Regime)
+  - id: manual_close
+    label: Manueller Close (Diskretion)
+  - id: invalidation
+    label: Trade-These invalidiert
+  - id: rebalance
+    label: Portfolio-Rebalancing
+
+regime_tags:
+  - id: bullish_calm
+    label: Bullish ruhig
+    description: F&G > 60, VIX < 20
+  - id: bullish_volatile
+    label: Bullish volatil
+    description: F&G > 60, VIX >= 20
+  - id: bearish_panic
+    label: Bearish Panik
+    description: F&G < 20, VIX > 30
+  - id: bearish_grind
+    label: Bearish schleichend
+    description: F&G < 40, VIX < 25
+  - id: ranging
+    label: Seitwaerts
+    description: F&G 40-60, kein Trend
+  - id: euphoria
+    label: Euphorie
+    description: F&G > 80
+  - id: capitulation
+    label: Kapitulation
+    description: F&G < 10
+
+strategy_categories:
+  - id: mean_reversion
+    label: Mean Reversion
+  - id: momentum
+    label: Momentum
+  - id: news_driven
+    label: News-Driven
+  - id: fundamental_long
+    label: Fundamental Long
+  - id: regime_adaptive
+    label: Regime-Adaptive
+  - id: pair_trade
+    label: Pair Trade
+  - id: ad_hoc
+    label: Ad-hoc (keine Strategie)
+
+horizons:
+  - id: intraday
+    label: Intraday
+    typical_hold_hours: "1-8"
+  - id: swing_short
+    label: Short Swing (< 5d)
+    typical_hold_days: "1-4"
+  - id: swing_long
+    label: Long Swing (>= 5d)
+    typical_hold_days: "5-30"
+  - id: position
+    label: Position
+    typical_hold_days: "30+"
+
+mistake_tags:
+  - id: fomo
+    label: FOMO (Fear of Missing Out)
+  - id: no_stop
+    label: Ohne Stop-Loss
+  - id: revenge
+    label: Revenge-Trading
+  - id: overrode_own_rules
+    label: Eigene Regeln ueberstimmt
+  - id: oversized
+    label: Zu grosse Position
+  - id: ignored_risk_gate
+    label: Risk-Gate ignoriert
+  - id: chased
+    label: Hinterhergerannt (zu spaet eingestiegen)
+  - id: held_too_long
+    label: Zu lange gehalten
+  - id: cut_too_early
+    label: Zu frueh geschlossen
