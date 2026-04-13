@@ -71,15 +71,45 @@ def configure_logging() -> None:
     Called once from the FastAPI lifespan at startup. Idempotent: calling
     it multiple times re-applies the same configuration without leaking
     handlers.
+
+    Both ctrader's own structlog events AND third-party stdlib loggers
+    (uvicorn, asyncpg, fastapi, httpx) end up as single-line JSON via
+    `structlog.stdlib.ProcessorFormatter`. NFR-M4 requires this
+    consistency — without it uvicorn lifecycle messages and access logs
+    appear as plain text and break log-aggregator parsing.
     """
 
     log_path = _resolve_log_path(settings.log_file)
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Shared structlog processor chain — ctrader events go through it
+    # directly, third-party stdlib LogRecords go through it via the
+    # ProcessorFormatter so the output shape is identical.
+    timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        timestamper,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+    ]
+
     # ------------------------------------------------------------------
-    # Stdlib logging — two handlers (rotating file + stderr)
+    # Stdlib logging — two handlers (rotating file + stderr) using a
+    # ProcessorFormatter so EVERYTHING — uvicorn, asyncpg, our own
+    # structlog calls — comes out as JSON.
     # ------------------------------------------------------------------
-    formatter = logging.Formatter("%(message)s")
+    formatter = structlog.stdlib.ProcessorFormatter(
+        # `foreign_pre_chain` is applied to log records that come from
+        # plain `logging.getLogger(...).info(...)` calls (uvicorn,
+        # asyncpg) so they pick up timestamps and level fields before
+        # the JSON renderer.
+        foreign_pre_chain=shared_processors,
+        processors=[
+            structlog.stdlib.ProcessorFormatter.remove_processors_meta,
+            structlog.processors.JSONRenderer(),
+        ],
+    )
 
     file_handler = logging.handlers.RotatingFileHandler(
         filename=str(log_path),
@@ -112,12 +142,11 @@ def configure_logging() -> None:
     structlog.reset_defaults()
     structlog.configure(
         processors=[
-            structlog.contextvars.merge_contextvars,
-            structlog.processors.add_log_level,
-            structlog.processors.TimeStamper(fmt="iso", utc=True),
-            structlog.processors.StackInfoRenderer(),
-            structlog.processors.format_exc_info,
-            structlog.processors.JSONRenderer(),
+            *shared_processors,
+            # Hand the record off to the stdlib formatter above so
+            # ctrader's structlog events flow through the same pipeline
+            # as third-party log records — single source of truth.
+            structlog.stdlib.ProcessorFormatter.wrap_for_formatter,
         ],
         wrapper_class=structlog.make_filtering_bound_logger(
             logging.getLevelName(settings.log_level.upper())

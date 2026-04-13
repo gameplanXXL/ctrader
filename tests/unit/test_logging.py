@@ -12,7 +12,6 @@ from __future__ import annotations
 import json
 import logging
 import logging.handlers
-from io import StringIO
 from pathlib import Path
 
 import pytest
@@ -78,28 +77,30 @@ def test_configure_logging_closes_old_handlers_on_reconfigure() -> None:
 
 
 def test_structlog_emits_single_line_json() -> None:
-    """A structlog call must serialize to a single-line JSON object."""
+    """A structlog call must serialize to a single-line JSON object.
+
+    Reads the actual rotating log file (anchored at tmp_path by the
+    autouse `_isolated_log_path` fixture) so we verify the bytes that
+    hit disk, not a side-channel buffer that bypasses the
+    ProcessorFormatter.
+    """
 
     configure_logging()
 
-    buffer = StringIO()
-    # Temporarily route structlog's underlying stdlib logger to our buffer
-    # so we can inspect the exact bytes that would hit the file.
-    stream_handler = logging.StreamHandler(buffer)
-    stream_handler.setFormatter(logging.Formatter("%(message)s"))
-    logging.getLogger().addHandler(stream_handler)
+    logger = get_logger("tests.unit.test_logging")
+    logger.info("smoke_test", key="value", number=42)
 
-    try:
-        logger = get_logger("tests.unit.test_logging")
-        logger.info("smoke_test", key="value", number=42)
-    finally:
-        logging.getLogger().removeHandler(stream_handler)
+    # Flush all root handlers so the rotating-file write is visible.
+    for handler in logging.getLogger().handlers:
+        handler.flush()
 
-    output = buffer.getvalue().strip().splitlines()
-    assert output, "structlog produced no output"
+    log_path = Path(settings.log_file)
+    assert log_path.is_file(), f"log file not created at {log_path}"
 
-    # Pick the last line (tests may run repeatedly and add lines).
-    payload = json.loads(output[-1])
+    lines = [ln for ln in log_path.read_text(encoding="utf-8").splitlines() if ln.strip()]
+    assert lines, "structlog produced no output to the rotating file"
+
+    payload = json.loads(lines[-1])
     assert payload["event"] == "smoke_test"
     assert payload["key"] == "value"
     assert payload["number"] == 42
