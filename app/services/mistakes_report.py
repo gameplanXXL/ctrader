@@ -42,18 +42,30 @@ class MistakeRow:
         return float(self.avg_pnl)
 
 
-# UNNEST of the JSONB array with two grouping metrics. Trades where
-# `pnl` is NULL coerce to 0 for the SUM so the SQL stays stable — the
-# COUNT still reflects the real number of trades bearing that tag.
+# UNNEST of the JSONB array with two grouping metrics. Two code-review
+# hardening fixes on top of the initial Story 3.4 query:
+#
+# H2/BH-6/EC-17: the `jsonb_typeof(... ) = 'array'` guard prevents
+# `jsonb_array_elements_text` from crashing when a row ever stores a
+# non-array value (scalar string, null, …) — without it, one bad row
+# kills the whole report with `cannot extract elements from a scalar`.
+#
+# H6/EC-18: the AVG is computed as `SUM(pnl) / NULLIF(COUNT(*), 0)` so
+# that trades with NULL pnl contribute 0 to the SUM *and* divide by
+# the full count — matching the docstring's "frequency counts real
+# trades, money counts only closed ones" invariant. Using raw `AVG(pnl)`
+# would silently average only the non-null rows, yielding `count × avg
+# ≠ total` in the report.
 _REPORT_SQL = """
 SELECT
     mistake_tag::text AS tag,
     COUNT(*)          AS count,
     COALESCE(SUM(pnl), 0)::numeric AS total_pnl,
-    COALESCE(AVG(pnl), 0)::numeric AS avg_pnl
+    COALESCE(SUM(pnl) / NULLIF(COUNT(*), 0), 0)::numeric AS avg_pnl
   FROM trades,
        jsonb_array_elements_text(trigger_spec->'mistake_tags') AS mistake_tag
  WHERE trigger_spec ? 'mistake_tags'
+   AND jsonb_typeof(trigger_spec->'mistake_tags') = 'array'
    AND opened_at BETWEEN $1 AND $2
  GROUP BY mistake_tag
  ORDER BY total_pnl ASC, count DESC

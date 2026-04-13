@@ -11,10 +11,28 @@ Tagging-service SQL is exercised by the integration test file.
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
-
 import pytest
 from fastapi.testclient import TestClient
+
+
+class _CtxMgr:
+    """Minimal async context manager — yields a sentinel object as
+    the 'connection' so stubbed service calls ignore it."""
+
+    async def __aenter__(self) -> object:
+        return object()
+
+    async def __aexit__(self, *_a: object) -> bool:
+        return False
+
+
+def _install_fake_pool(client: TestClient) -> None:
+    """Rewire `app.state.db_pool.acquire` to the no-op context manager
+    so `async with db_pool.acquire() as conn:` doesn't crash on the
+    conftest AsyncMock. Scoped to the `client` fixture — the autouse
+    `_fake_db_pool` fixture resets it per test."""
+
+    client.app.state.db_pool.acquire = lambda: _CtxMgr()
 
 
 def test_tagging_form_returns_404_when_pool_unavailable(client: TestClient) -> None:
@@ -26,8 +44,8 @@ def test_tagging_form_contains_dropdowns_and_mistake_checkboxes(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Stub get_trade_detail so the route renders the form, then assert
-    the critical structure: 4 dropdowns, mistake checkboxes, autofocus
-    on the first field, HTMX post target."""
+    the critical structure: 4 dropdowns, mistake checkboxes, HTMX
+    post target."""
 
     from app.routers import trades as trades_router
 
@@ -45,17 +63,7 @@ def test_tagging_form_contains_dropdowns_and_mistake_checkboxes(
 
     monkeypatch.setattr(trades_router, "get_trade_detail", _fake_get_trade_detail)
     monkeypatch.setattr(trades_router, "list_strategies_for_dropdown", _fake_strategies)
-
-    # Bypass the AsyncMock pool guard — create a minimal async-context-
-    # manager so the `async with db_pool.acquire() as conn:` block runs.
-    class _CtxMgr:
-        async def __aenter__(self):
-            return object()
-
-        async def __aexit__(self, *a):
-            return False
-
-    client.app.state.db_pool.acquire = lambda: _CtxMgr()
+    _install_fake_pool(client)
 
     response = client.get("/trades/42/tagging_form")
     assert response.status_code == 200
@@ -66,7 +74,6 @@ def test_tagging_form_contains_dropdowns_and_mistake_checkboxes(
     assert 'name="horizon"' in body
     assert 'name="exit_reason"' in body
     assert 'name="mistake_tags[]"' in body
-    assert "autofocus" in body
     assert 'hx-post="/trades/42/tag"' in body
     # Mean Reversion comes from our stub, so taxonomy fallback is not used
     assert "Mean Reversion" in body
@@ -75,31 +82,56 @@ def test_tagging_form_contains_dropdowns_and_mistake_checkboxes(
 def test_tag_post_rejects_unknown_trigger_type(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Bogus trigger_type → 422, form re-rendered with inline error."""
+    """Bogus trigger_type → 422, form re-rendered with inline error.
 
-    # Ensure pool looks alive so we get past the 503 guard
-    from app.main import app
+    Code-review BH-25 fix: no longer mutates `app.state` globally —
+    uses the conftest-provided mock pool via `_install_fake_pool`.
+    """
 
-    app.state.db_pool = AsyncMock(name="asyncpg.Pool")
-    app.state.db_pool.acquire = lambda: _noop_ctx()
+    from app.routers import trades as trades_router
+
+    async def _fake_strategies(_conn):  # noqa: ANN001
+        return [("momentum", "Momentum")]
+
+    monkeypatch.setattr(trades_router, "list_strategies_for_dropdown", _fake_strategies)
+    _install_fake_pool(client)
 
     response = client.post(
         "/trades/1/tag",
         data={
+            "strategy": "momentum",
             "trigger_type": "bogus_type",
             "horizon": "intraday",
+            "exit_reason": "stop_hit",
         },
     )
     assert response.status_code == 422
     assert "trigger_type" in response.text
+    # Code-review M2 / EC-12: re-render must keep the strategy dropdown
+    # populated so the user isn't trapped.
+    assert "Momentum" in response.text
 
 
-def _noop_ctx():
-    class _Ctx:
-        async def __aenter__(self):
-            return object()
+def test_tag_post_missing_strategy_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Code-review H1: strategy is mandatory — previously dropped silently."""
 
-        async def __aexit__(self, *a):
-            return False
+    from app.routers import trades as trades_router
 
-    return _Ctx()
+    async def _fake_strategies(_conn):  # noqa: ANN001
+        return []
+
+    monkeypatch.setattr(trades_router, "list_strategies_for_dropdown", _fake_strategies)
+    _install_fake_pool(client)
+
+    response = client.post(
+        "/trades/1/tag",
+        data={
+            "trigger_type": "manual",
+            "horizon": "intraday",
+            "exit_reason": "stop_hit",
+        },
+    )
+    assert response.status_code == 422
+    assert "strategy" in response.text

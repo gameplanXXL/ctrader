@@ -89,11 +89,15 @@ HORIZON_LABELS: dict[str, str] = {
 
 
 def _followed_text(followed: bool | None) -> str:
+    # Code-review H5 / EC-41: `None` maps to a neutral phrase, NOT to
+    # "Chef folgte …" which would invent provenance. Manual trades
+    # leave `followed` empty because there's no agent recommendation
+    # to follow in the first place.
     if followed is True:
         return "Chef folgte der Empfehlung"
     if followed is False:
         return "Chef ueberstimmte die Empfehlung"
-    return "Unbekannt"
+    return "ohne Agent-Empfehlung"
 
 
 def _agent_name(agent_id: str | None) -> str:
@@ -103,12 +107,24 @@ def _agent_name(agent_id: str | None) -> str:
 
 
 def _confidence_pct(confidence: float | int | None) -> str:
+    """Render a 0..1 confidence as an integer percent.
+
+    Code-review BH-17: clamp to [0, 100] so a malformed spec carrying
+    e.g. `confidence=45` (raw percent from a buggy caller) renders as
+    "100" instead of the nonsense "4500".
+    """
+
     if confidence is None:
         return "Unbekannt"
     try:
-        return str(int(round(float(confidence) * 100)))
+        pct = int(round(float(confidence) * 100))
     except (TypeError, ValueError):
         return "Unbekannt"
+    if pct < 0:
+        pct = 0
+    elif pct > 100:
+        pct = 100
+    return str(pct)
 
 
 def _format_with_fallback(template: str, fields: dict[str, Any]) -> str:
@@ -140,6 +156,12 @@ def render_trigger_prose(
 
     trade = trade or {}
     trigger_type = (trigger_spec.get("trigger_type") or "").lower().strip()
+    # Code-review EC-5: a partially-filled dict with an explicit None
+    # trigger_type should look "untagged-ish", not render a half-empty
+    # prose line with "Unbekannt" everywhere. Treat missing/empty
+    # trigger_type as no spec.
+    if not trigger_type:
+        return "Nicht getaggt"
     template = PATTERNS.get(trigger_type, DEFAULT_PATTERN)
 
     side_raw = str(trade.get("side") or trigger_spec.get("side") or "").lower()

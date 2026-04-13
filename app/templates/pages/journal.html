@@ -59,7 +59,19 @@
               (function () {
                 var slot = document.getElementById('{{ _expansion_target }}');
                 var prefill = document.getElementById('prefill-{{ trade.id }}');
-                if (slot && prefill) { slot.innerHTML = prefill.innerHTML; }
+                if (slot && prefill) {
+                  slot.innerHTML = prefill.innerHTML;
+                  // Code-review H4 / EC-34: rescan the freshly-inserted
+                  // DOM so nested `hx-*` attributes (the tagging slot's
+                  // `hx-get ... hx-trigger="load"`) are wired up by HTMX.
+                  // Without this, bookmarked `?expand=<untagged-id>`
+                  // renders the drilldown but the tagging form never
+                  // loads. HTMX defers to `DOMContentLoaded` otherwise,
+                  // which has already fired.
+                  if (window.htmx && typeof window.htmx.process === 'function') {
+                    window.htmx.process(slot);
+                  }
+                }
               })();
             </script>
           {% endif %}

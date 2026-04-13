@@ -22,6 +22,7 @@ from pathlib import Path
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.templating import Jinja2Templates
+from pydantic import ValidationError as PydanticValidationError
 
 from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
@@ -29,7 +30,7 @@ from app.services.expectancy import compute_expectancy_at_entry
 from app.services.pnl import compute_pnl
 from app.services.r_multiple import compute_r_multiple
 from app.services.strategy_source import list_strategies_for_dropdown
-from app.services.tagging import TradeNotFoundError, tag_trade
+from app.services.tagging import TradeNotFoundError, TradeNotTaggableError, tag_trade
 from app.services.taxonomy import get_taxonomy
 from app.services.trade_query import get_trade_detail, next_untagged_trade
 from app.services.trigger_prose import render_mistake_tags, render_trigger_prose
@@ -148,15 +149,26 @@ async def post_tag(request: Request, trade_id: int):
     form = await request.form()
     form_data: dict[str, object] = {}
     # Multi-value form fields (mistake_tags[]) arrive as repeated keys.
+    # Use `removesuffix("[]")` — `rstrip("[]")` strips any trailing `[`
+    # or `]` chars individually, which corrupts fields like `tags[0]`.
+    # Code-review BH-2 / EC-4 fix.
     for key in form:
         values = form.getlist(key)
-        form_data[key.rstrip("[]")] = values if len(values) > 1 else values[0]
+        clean_key = key.removesuffix("[]")
+        form_data[clean_key] = values if len(values) > 1 else values[0]
 
     try:
         spec = build_from_tagging_form(form_data)
     except TriggerSpecValidationError as exc:
         logger.warning("tagging.invalid_form", trade_id=trade_id, error=str(exc))
-        return _render_form_error(request, trade_id, str(exc))
+        return await _render_form_error(request, trade_id, str(exc))
+    except PydanticValidationError as exc:
+        # Pydantic's own ValidationError (max_length, ge/le, etc.) is
+        # NOT a subclass of `TriggerSpecValidationError`. Code-review
+        # M7 / EC-10 — without this branch the route 500s instead of
+        # re-rendering the form.
+        logger.warning("tagging.pydantic_invalid", trade_id=trade_id, error=str(exc))
+        return await _render_form_error(request, trade_id, "Ungueltige Eingabe")
 
     db_pool = getattr(request.app.state, "db_pool", None)
     if db_pool is None or not hasattr(db_pool, "acquire"):
@@ -165,9 +177,19 @@ async def post_tag(request: Request, trade_id: int):
     try:
         async with db_pool.acquire() as conn:
             await tag_trade(conn, trade_id, spec)
-            next_trade = await next_untagged_trade(conn)
+            # Code-review BH-9: protect next_untagged_trade — the tag
+            # has already been applied, we must not 500 the user over
+            # a read failure. Worst case: no jump link.
+            try:
+                next_trade = await next_untagged_trade(conn)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("tagging.next_untagged_failed", trade_id=trade_id, error=str(exc))
+                next_trade = None
     except TradeNotFoundError:
         raise HTTPException(status_code=404, detail="trade not found") from None
+    except TradeNotTaggableError as exc:
+        logger.warning("tagging.not_taggable", trade_id=trade_id, error=str(exc))
+        raise HTTPException(status_code=409, detail=str(exc)) from None
 
     headers = {
         "HX-Trigger": json.dumps({"showToast": {"message": "Trade getaggt", "variant": "success"}})
@@ -184,20 +206,39 @@ async def post_tag(request: Request, trade_id: int):
     )
 
 
-def _render_form_error(request: Request, trade_id: int, message: str) -> Response:
+async def _render_form_error(request: Request, trade_id: int, message: str) -> Response:
     """Re-render the tagging form with a visible validation error.
 
     Story 3.1 AC #8 — form-level error shown when the client-side
     validation misses or is bypassed.
+
+    Code-review M2 / EC-12: the initial implementation passed
+    `strategies=[]` which dropped the strategy dropdown to a single
+    "— select —" option, trapping the user in an unresubmittable
+    state. We now re-fetch the strategy list via the same source
+    adapter as the GET path.
     """
 
     taxonomy = get_taxonomy()
+    strategies: list[tuple[str, str]] = []
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                strategies = await list_strategies_for_dropdown(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("tagging.error_render_strategies_failed", error=str(exc))
+            strategies = await list_strategies_for_dropdown(None)
+    else:
+        strategies = await list_strategies_for_dropdown(None)
+
     return templates.TemplateResponse(
         request,
         "fragments/tagging_form.html",
         {
             "trade": {"id": trade_id},
-            "strategies": [],
+            "strategies": strategies,
             "trigger_types": taxonomy.trigger_types,
             "horizons": taxonomy.horizons,
             "exit_reasons": taxonomy.exit_reasons,

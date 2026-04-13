@@ -45,3 +45,38 @@ This file is append-only — never delete entries, only mark them done.
 - **D30** `format_pnl` catches `InvalidOperation` but not `ArithmeticError` — a `Decimal('Infinity')` slipping in would bubble. Tighten the except tuple when the formatter is shared across stories. *Source: blind-hunter*
 - **D31** `import_flex_xml` holds a single `conn.transaction()` around all inserts. On a 5k-trade import a single bad row rolls back the whole batch. Split into per-row savepoints when historical reimports grow. *Source: edge-case-hunter*
 - **D32** `TradeIn.trigger_spec` is typed `dict[str, Any] | None`. JSONB round-trip tests (insert then read) don't yet exist — we trust asyncpg's `::jsonb` cast. Add an integration test once Story 3.1 (tagging form) writes non-trivial specs. *Source: edge-case-hunter*
+
+---
+
+## Deferred from: code review of Epic 3 (Stories 3.1–3.4) — 2026-04-14
+
+- **D33** Fuzzy-search for tagging-form dropdowns (Story 3.1 AC #5, UX-DR60). Alpine.js / datalist integration deferred to a Story 3.1.1 polish pass. *Source: acceptance-auditor*
+- **D34** Per-field blur validation with red border + inline error (Story 3.1 AC #8, UX-DR59). Server-side 422 re-render lands correctly but client-side blur hooks are missing. Story 3.1.1. *Source: acceptance-auditor*
+- **D35** Contract test of `TriggerSpec.to_jsonb()` against `fundamental/trigger-evaluator.ts` schema (Story 3.2 AC #4, Task 5). Fold into Story 5.4 (MCP-contract-test) when the MCP snapshot workflow lands. *Source: acceptance-auditor*
+- **D36** Bot-proposal auto-population (Story 3.2 AC #2). `build_from_proposal` is an Epic 7 placeholder. Full wiring arrives with Story 7.x. *Source: acceptance-auditor*
+- **D37** Mistake-report facet-filter integration (Story 3.4 AC #3). Deferred to Story 4.1 (Facet-Filter-System). *Source: acceptance-auditor*
+- **D38** UX-DR74 spec-text: "20-30 patterns" → "one pattern per trigger_type + default". Update in next PRD/UX-Spec pass. *Source: acceptance-auditor*
+- **D39** PRD FR18a mistake-tag naming: hyphen → underscore (match taxonomy). *Source: acceptance-auditor*
+- **D40** PRD FR18a mistake-tag list: extend from 6 to 9 entries to match taxonomy. *Source: acceptance-auditor*
+- **D41** architecture.md: document the JSONB codec in `app/db/pool.py::init_connection` under "JSONB Implementation". *Source: acceptance-auditor*
+- **D42** CSRF protection on `POST /trades/{id}/tag`. Single-user-localhost acceptable; revisit when / if the app is exposed beyond localhost. *Source: blind-hunter BH-8*
+- **D43** `datetime(2000, 1, 1)` sentinel for `window="all"` — cosmetic magic number. Replace with a more explicit "oldest-in-table" query when convenient. *Source: blind-hunter BH-36, edge-case EC-20*
+- **D44** Inline `<style>` duplicated across fragment templates (tagging_form, mistakes_report). Move into compiled Tailwind layer when `pytailwindcss` output grows stable. *Source: edge-case EC-32, EC-36*
+- **D45** `information_schema.tables` probe in `strategy_source` runs on every form render. Cache module-level once Epic 6 lands. *Source: blind-hunter BH-27, edge-case EC-49*
+- **D46** `mistakes_report_page` catches all exceptions silently — consider `logger.exception` plus a degraded-state banner. *Source: blind-hunter BH-4*
+- **D47** `SIDE_DE["short"] = "short-te"` is Denglish, not German. Replace with "ging short auf" or similar when Chef weighs in. *Source: blind-hunter BH-14*
+- **D48** Umlaut-free transliteration (`ueberstimmte`, `Haeufigkeit`, …). Normalize to proper German with umlauts now that UTF-8 rendering is stable. *Source: blind-hunter BH-15*
+- **D49** `_format_with_fallback` silently masks pattern-template typos as "Unbekannt". Add a strict mode or validator. *Source: blind-hunter BH-16*
+- **D50** `AGENT_NAMES` lacks a test that all MVP agents (Viktor, Rita, Satoshi, Cassandra, Gordon) are present. Add when a new agent lands. *Source: edge-case EC-37*
+- **D51** `HORIZON_LABELS` not locked to taxonomy by a test. Add assertion like the trigger-type coverage test. *Source: edge-case EC-39*
+- **D52** `mistakes_report.top_n_mistakes` filters by `opened_at`; for `position` horizon trades closed long after open this is counter-intuitive. Consider a toggle "by-opened vs by-closed". *Source: edge-case EC-19*
+- **D53** Raw SQL in `mistakes_report_page` route handler (the `total_trades` count). Move to `app/services/mistakes_report.py`. *Source: edge-case EC-24*
+- **D54** Concurrent `UPDATE trades SET trigger_spec` vs `_UPSERT_SQL` live-sync race. Safe today because UPSERT skips trigger_spec, but worth documenting. *Source: edge-case EC-22*
+- **D55** Missing integration test: end-to-end tagging POST → DB write → prose render. Exact bug class H7 / H8 addressed; an integration test would lock it. *Source: edge-case EC-50*
+- **D56** Tagging form's `"Press Enter to save"` hint is misleading when a textarea has focus (Enter inserts newline). *Source: blind-hunter BH-37*
+- **D57** `/journal/mistakes` sub-page has no top-nav affordance — discoverability handled in Epic 4. *Source: edge-case EC-46*
+- **D58** `format_time` truncates seconds in the mistakes-report window-meta line. Cosmetic. *Source: edge-case EC-47*
+- **D59** Duplicate globals registration on two Jinja envs (`pages.py` + `trades.py`). Extract `register_trigger_globals(env)` helper. *Source: blind-hunter BH-30*
+- **D60** `_trigger_spec_json` round-trips via `json.loads(json.dumps(..., sort_keys=True))` — sort-key ordering is lost after the second encode. Cosmetic (JSONB is order-agnostic). *Source: edge-case EC-28*
+- **D61** `list_strategies_for_dropdown` swallows `Exception`; an outer `logger.exception` would improve debug. *Source: edge-case EC-48*
+- **D62** Story 3.1.1 follow-up — consolidated: submit-button spec reconciliation, fuzzy-search, blur validation, textarea-aware Enter hint. *Source: triage bundle*

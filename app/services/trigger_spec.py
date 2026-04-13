@@ -96,36 +96,58 @@ def build_from_tagging_form(
 ) -> TriggerSpec:
     """Translate a POSTed tagging form to a `TriggerSpec`.
 
-    Required form keys:
-        trigger_type, horizon
+    Required form keys (FR15 / Story 3.1 AC #1 — the four mandatory
+    tagging fields):
+        strategy, trigger_type, horizon, exit_reason
 
     Optional form keys:
         confidence, entry_reason, note, followed, mistake_tags[]
 
-    FR15 / Story 3.1 AC #1 require strategy + trigger_source + horizon +
-    exit_reason as four mandatory fields. We store strategy + exit_reason
-    on adjacent columns (`strategy_id` Epic 6, `exit_reason` stays on
-    the tagging row — NOT in trigger_spec), so this builder sees
-    trigger_type + horizon + the optional spec extras only.
+    Before Epic 6 creates the `strategies` table there is no dedicated
+    column for `strategy`, so we store it inside the JSONB spec
+    alongside `exit_reason`. Epic 6 Story 6.1 migrates `strategy` to
+    `trades.strategy_id` while keeping the JSONB copy as a fallback.
+    (Code-review H1 fix — previously both fields were silently dropped.)
+
+    `followed` has no checkbox in the manual tagging form: for manual
+    trades the concept doesn't apply, so we leave the flag as `None`
+    unless the caller explicitly passes one. Bot-approval code paths
+    (Epic 7) populate it via `build_from_proposal`.
     """
 
+    strategy = str(form.get("strategy") or "").strip()
     trigger_type = str(form.get("trigger_type") or "").strip()
     horizon = str(form.get("horizon") or "").strip()
+    exit_reason = str(form.get("exit_reason") or "").strip()
+
+    if not strategy:
+        raise TriggerSpecValidationError("strategy is required")
     if not trigger_type:
         raise TriggerSpecValidationError("trigger_type is required")
     if not horizon:
         raise TriggerSpecValidationError("horizon is required")
+    if not exit_reason:
+        raise TriggerSpecValidationError("exit_reason is required")
 
     _require_taxonomy_id(trigger_type, "trigger_types", "trigger_type")
     _require_taxonomy_id(horizon, "horizons", "horizon")
+    _require_taxonomy_id(exit_reason, "exit_reasons", "exit_reason")
+    # `strategy` is NOT validated against taxonomy here because Epic 6
+    # will source it from the `strategies` table; until then we accept
+    # any non-empty string and let the strategy_source adapter manage
+    # the dropdown options (it already falls back to
+    # taxonomy.strategy_categories before Epic 6).
 
     confidence = _coerce_confidence(form.get("confidence"))
     mistake_tags = _clean_mistake_tags(form.get("mistake_tags"))
-    followed_raw = form.get("followed", True)
-    if isinstance(followed_raw, str):
-        followed = followed_raw.lower() in ("true", "1", "yes", "on")
-    else:
-        followed = bool(followed_raw)
+
+    followed: bool | None = None
+    if "followed" in form:
+        raw = form["followed"]
+        if isinstance(raw, str):
+            followed = raw.lower() in ("true", "1", "yes", "on")
+        elif raw is not None:
+            followed = bool(raw)
 
     return TriggerSpec(
         trigger_type=trigger_type,
@@ -134,6 +156,8 @@ def build_from_tagging_form(
         entry_reason=str(form.get("entry_reason") or "").strip(),
         source=source,
         followed=followed,
+        strategy=strategy,
+        exit_reason=exit_reason,
         mistake_tags=mistake_tags,
         note=(str(form["note"]).strip() if form.get("note") else None),
     )

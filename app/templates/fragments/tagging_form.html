@@ -105,27 +105,20 @@
       </div>
     </div>
 
+    {# UX-DR62 caps tagging at ≤6 fields. Strategy, Trigger Source,
+       Horizon, Exit Reason are the four mandatory ones; Mistake Tags
+       and Entry Reason round us out at exactly 6. Note was merged
+       into entry_reason (code-review triage for 3.1 AC #1). #}
     <div class="tagging-form__field">
-      <label class="form-label" for="note-{{ trade.id }}">Note (optional)</label>
+      <label class="form-label" for="entry-reason-{{ trade.id }}">Entry Reason / Note (optional)</label>
       <textarea
-        id="note-{{ trade.id }}"
-        name="note"
+        id="entry-reason-{{ trade.id }}"
+        name="entry_reason"
         class="tagging-form__textarea"
         rows="2"
         maxlength="2000"
+        placeholder="Warum bist du eingestiegen? Was war die These?"
       ></textarea>
-    </div>
-
-    <div class="tagging-form__field">
-      <label class="form-label" for="entry-reason-{{ trade.id }}">Entry Reason (optional)</label>
-      <input
-        id="entry-reason-{{ trade.id }}"
-        name="entry_reason"
-        type="text"
-        class="tagging-form__input"
-        maxlength="2000"
-        placeholder="Warum bist du eingestiegen?"
-      >
     </div>
 
     <div class="tagging-form__actions">

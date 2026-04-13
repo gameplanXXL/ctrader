@@ -58,16 +58,28 @@ class TriggerSpec(BaseModel):
     service layer (`app/services/trigger_spec.py`) rather than pinned
     to a Literal here — the taxonomy evolves independently and we'd
     rather not rev this model every time a new trigger_type lands.
+
+    `extra="ignore"` intentionally — any future schema addition (agent
+    scores, regime snapshots, …) should be readable by the current
+    parser without forcing a lockstep deploy. Strict enforcement of
+    "only known keys" lives in `build_from_tagging_form` instead.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    model_config = ConfigDict(frozen=True, extra="ignore")
 
     trigger_type: str = Field(..., min_length=1)
     confidence: float = Field(..., ge=0.0, le=1.0)
     horizon: str = Field(..., min_length=1)
     entry_reason: str = Field(default="", max_length=2000)
     source: TriggerSource
-    followed: bool = True
+    followed: bool | None = None
+
+    # Code-review H1: strategy and exit_reason are advertised as mandatory
+    # form fields in Story 3.1 AC #1. Pre-Epic-6 there is no strategies
+    # table yet, so we stash them inside the JSONB so the values are
+    # captured. Epic 6 Story 6.1 migrates `strategy` → `trades.strategy_id`.
+    strategy: str | None = Field(default=None, min_length=1)
+    exit_reason: str | None = Field(default=None, min_length=1)
 
     agent_id: str | None = None
     proposal_id: int | None = None
@@ -89,13 +101,14 @@ class TriggerSpec(BaseModel):
     def to_jsonb(self) -> dict[str, Any]:
         """Serialize to a plain dict ready for the JSONB cast.
 
-        Pydantic's `model_dump()` is enough — all fields are already
-        JSON-native. We drop `None` mistake_tags to keep the stored doc
-        compact and preserve the existing `trigger_spec ? 'mistake_tags'`
-        check in the Story 3.4 report query.
+        Uses `exclude_none=True` so the stored JSONB doc stays compact
+        and the GIN index on `trades.trigger_spec` doesn't bloat with
+        always-null keys (BH-29). We additionally drop empty
+        `mistake_tags` so the Story 3.4 report query can keep keying on
+        `trigger_spec ? 'mistake_tags'` without false positives.
         """
 
-        data = self.model_dump(mode="json", exclude_none=False)
+        data = self.model_dump(mode="json", exclude_none=True)
         # StrEnum serializes to its value under mode="json" already.
         if not data.get("mistake_tags"):
             data.pop("mistake_tags", None)

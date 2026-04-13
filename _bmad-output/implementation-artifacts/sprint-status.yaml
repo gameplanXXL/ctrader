@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-13T23:30'
+last_updated: '2026-04-14T00:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -54,10 +54,10 @@ development_status:
   # EPIC 3: Trade-Tagging & Trigger-Provenance
   # =========================================================================
   epic-3: in-progress
-  3-1-post-hoc-tagging-form: review
-  3-2-trigger-spec-jsonb: review
-  3-3-trigger-spec-readable: review
-  3-4-mistake-tags-top-n-report: review
+  3-1-post-hoc-tagging-form: review  # Tranche A applied; 3.1.1 follow-up pending (fuzzy search + blur validation)
+  3-2-trigger-spec-jsonb: done
+  3-3-trigger-spec-readable: done
+  3-4-mistake-tags-top-n-report: done
 
   # =========================================================================
   # EPIC 4: Journal-Intelligence — Facetten, Aggregation & Visualisierung

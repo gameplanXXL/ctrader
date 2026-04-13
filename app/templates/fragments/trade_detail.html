@@ -97,12 +97,18 @@
       {{ trigger_spec_readable(trade.trigger_spec, trade) }}
     </section>
   {% elif trade.broker == "ib" and trade.closed_at is not none %}
+    {# Code-review BH-22: `load once` is not a valid HTMX trigger
+       modifier — `load` already fires exactly once per element.
+       Code-review BH-21: `autofocus` on a dynamically-swapped form
+       never fires, so we listen for `htmx:afterSwap` and focus the
+       first required select. #}
     <section
       class="trade-detail__tagging-slot"
       id="tagging-slot-{{ trade.id }}"
       hx-get="/trades/{{ trade.id }}/tagging_form"
-      hx-trigger="load once"
+      hx-trigger="load"
       hx-swap="innerHTML"
+      hx-on::after-swap="this.querySelector('select, input, textarea')?.focus()"
     >
       <p class="trade-detail__placeholder">Loading tagging form…</p>
     </section>
