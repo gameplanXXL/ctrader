@@ -1,12 +1,32 @@
 {#
   trade_row(trade)
-  Tier-1 component, full implementation in Epic 2 (Story 2.3).
-  States: default | hover | selected | expanded | untagged
+
+  Story 2.3: full implementation of the journal trade row macro.
+  Renders one trade as a <tr> with hover state + click target for the
+  inline drilldown (Story 2.4 wires the HTMX hx-get).
+
+  States: default | hover (--bg-surface) | expanded (handled by 2.4)
+  Numeric columns are right-aligned + monospace via the `tabular` class
+  defined in design-tokens.css.
 #}
 {% macro trade_row(trade) %}
-<tr class="trade-row" role="row" data-trade-id="{{ trade.id }}" aria-expanded="false">
-  <td>{{ trade.symbol }}</td>
-  <td>{{ trade.side }}</td>
-  <td data-numeric>{{ trade.quantity }}</td>
+<tr class="trade-row" data-trade-id="{{ trade.id }}">
+  <td class="trade-row__symbol tabular">{{ trade.symbol }}</td>
+  <td class="trade-row__side trade-row__side--{{ trade.side }}">{{ trade.side | upper }}</td>
+  <td class="trade-row__time tabular">{{ trade.opened_at | format_time }}</td>
+  <td class="trade-row__quantity tabular">{{ trade.quantity | format_quantity }}</td>
+  <td class="trade-row__entry tabular">{{ trade.entry_price | format_price }}</td>
+  <td class="trade-row__exit tabular">{{ trade.exit_price | format_price }}</td>
+  <td class="trade-row__pnl tabular {{ trade.pnl | pnl_class }}">{{ trade.pnl | format_pnl }}</td>
+  <td class="trade-row__broker">{{ trade.broker | upper }}</td>
+  <td class="trade-row__status">
+    {% if trade.trigger_spec is none and trade.broker == 'ib' and trade.closed_at is not none %}
+      <span class="status-pill status-pill--untagged">untagged</span>
+    {% elif trade.trigger_spec is not none %}
+      <span class="status-pill status-pill--tagged">tagged</span>
+    {% else %}
+      <span class="status-pill status-pill--open">open</span>
+    {% endif %}
+  </td>
 </tr>
 {% endmacro %}

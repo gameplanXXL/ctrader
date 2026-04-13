@@ -29,7 +29,12 @@ def test_page_shell_renders_200(client: TestClient, path: str, slug: str, label:
 
     body = response.text
     assert "ctrader" in body
-    assert f'<h1 class="page-title">{label}</h1>' in body
+    # Story 2.3 replaced the journal page-shell H1 with a dedicated
+    # journal__title class. Other shells still use page-title.
+    assert (
+        f'<h1 class="page-title">{label}</h1>' in body
+        or f'<h1 class="journal__title">{label}</h1>' in body
+    )
 
 
 @pytest.mark.parametrize(("path", "slug", "label"), PAGES)

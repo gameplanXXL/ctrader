@@ -1,6 +1,6 @@
 # Story 2.3: Journal-Startseite — Trade-Liste & Untagged-Zaehler
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -19,32 +19,32 @@ so that I can quickly scan my trading activity and identify trades that need tag
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Trade Query Service (AC: 1, 4, 5)
-  - [ ] `app/services/trade_query.py` mit `list_trades(page, per_page=30)`
-  - [ ] SQL: `SELECT ... FROM trades ORDER BY opened_at DESC LIMIT 30 OFFSET ?`
-  - [ ] Zaehler: `COUNT(*) FROM trades WHERE trigger_spec IS NULL AND broker = 'ib'`
-- [ ] Task 2: trade_row Macro implementieren (AC: 2, 6)
-  - [ ] `app/templates/components/trade_row.html` (ersetzt Stub)
-  - [ ] Jinja2-Macro mit Parameter `trade`
-  - [ ] Spalten: Symbol, Side, Entry-Time, P&L (colored), Trigger-Type, Horizon, Status
-  - [ ] Monospace-Numerik rechtsbuendig
-  - [ ] Null-Handling: em-dash fuer leer, "NULL" fuer R-Multiple ohne Stop
-- [ ] Task 3: Journal-Startseite Template (AC: 1, 2, 3)
-  - [ ] `app/templates/pages/journal.html` erweitern
-  - [ ] Import trade_row macro
-  - [ ] Untagged-Counter-Banner oben (prominent)
-  - [ ] Trade-Liste darunter
-- [ ] Task 4: Pagination (AC: 4)
-  - [ ] Query-Param `?page=N`
-  - [ ] Pagination-Controls: "Zurueck | Seite X von Y | Weiter"
-  - [ ] Keyboard: Arrow-Keys (Alpine.js oder vanilla JS)
-- [ ] Task 5: Performance-Test (AC: 5)
-  - [ ] Seed: 2000 Trades
-  - [ ] Measure: Page-Load-Time
-  - [ ] Assert: <= 1.5s
-- [ ] Task 6: P&L-Formatting (AC: 6)
-  - [ ] Jinja2 Filter `format_pnl(value)` → returns (class, text)
-  - [ ] Grün wenn > 0, Rot wenn < 0, neutral wenn 0 oder NULL
+- [x] Task 1: Trade Query Service (AC: 1, 4, 5)
+  - [x] `app/services/trade_query.py` mit `list_trades(page, per_page=30)`
+  - [x] SQL: `SELECT ... FROM trades ORDER BY opened_at DESC LIMIT 30 OFFSET ?`
+  - [x] Zaehler: `COUNT(*) FROM trades WHERE trigger_spec IS NULL AND broker = 'ib'`
+- [x] Task 2: trade_row Macro implementieren (AC: 2, 6)
+  - [x] `app/templates/components/trade_row.html` (ersetzt Stub)
+  - [x] Jinja2-Macro mit Parameter `trade`
+  - [x] Spalten: Symbol, Side, Entry-Time, P&L (colored), Trigger-Type, Horizon, Status
+  - [x] Monospace-Numerik rechtsbuendig
+  - [x] Null-Handling: em-dash fuer leer, "NULL" fuer R-Multiple ohne Stop
+- [x] Task 3: Journal-Startseite Template (AC: 1, 2, 3)
+  - [x] `app/templates/pages/journal.html` erweitern
+  - [x] Import trade_row macro
+  - [x] Untagged-Counter-Banner oben (prominent)
+  - [x] Trade-Liste darunter
+- [x] Task 4: Pagination (AC: 4)
+  - [x] Query-Param `?page=N`
+  - [x] Pagination-Controls: "Zurueck | Seite X von Y | Weiter"
+  - [x] Keyboard: Arrow-Keys (Alpine.js oder vanilla JS)
+- [x] Task 5: Performance-Test (AC: 5)
+  - [x] Seed: 2000 Trades
+  - [x] Measure: Page-Load-Time
+  - [x] Assert: <= 1.5s
+- [x] Task 6: P&L-Formatting (AC: 6)
+  - [x] Jinja2 Filter `format_pnl(value)` → returns (class, text)
+  - [x] Grün wenn > 0, Rot wenn < 0, neutral wenn 0 oder NULL
 
 ## Dev Notes
 

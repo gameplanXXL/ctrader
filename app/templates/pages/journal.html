@@ -1,12 +1,191 @@
 {% extends "base.html" %}
+{% from "components/trade_row.html" import trade_row %}
+
 {% block title %}Journal · ctrader{% endblock %}
+
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Journal</h1>
-  <p class="page-placeholder">Coming soon — Epic 2 (Trade-Journal &amp; IB-Import).</p>
+<section class="journal">
+  <header class="journal__header">
+    <h1 class="journal__title">Journal</h1>
+    <div class="journal__meta">
+      <span class="journal__total tabular">{{ page.total_count }} trades</span>
+    </div>
+  </header>
+
+  {% if page.untagged_count > 0 %}
+    <a href="?untagged=1" class="untagged-banner" role="status">
+      <span class="untagged-banner__count tabular">{{ page.untagged_count }}</span>
+      <span class="untagged-banner__label">
+        {% if page.untagged_count == 1 %}closed manueller Trade{% else %}closed manuelle Trades{% endif %}
+        ohne Tagging
+      </span>
+      <span class="untagged-banner__cta">→ taggen</span>
+    </a>
+  {% endif %}
+
+  {% if page.trades %}
+    <table class="trade-table">
+      <thead>
+        <tr>
+          <th class="trade-table__th">Symbol</th>
+          <th class="trade-table__th">Side</th>
+          <th class="trade-table__th">Time (UTC)</th>
+          <th class="trade-table__th trade-table__th--num">Qty</th>
+          <th class="trade-table__th trade-table__th--num">Entry</th>
+          <th class="trade-table__th trade-table__th--num">Exit</th>
+          <th class="trade-table__th trade-table__th--num">P&amp;L</th>
+          <th class="trade-table__th">Broker</th>
+          <th class="trade-table__th">Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for trade in page.trades %}{{ trade_row(trade) }}{% endfor %}
+      </tbody>
+    </table>
+
+    {% if page.total_pages > 1 %}
+      <nav class="pagination" aria-label="Trade list pagination">
+        {% if page.has_prev %}
+          <a class="pagination__link" href="?page={{ page.page - 1 }}" rel="prev">← Zurück</a>
+        {% else %}
+          <span class="pagination__link pagination__link--disabled">← Zurück</span>
+        {% endif %}
+        <span class="pagination__status tabular">Seite {{ page.page }} von {{ page.total_pages }}</span>
+        {% if page.has_next %}
+          <a class="pagination__link" href="?page={{ page.page + 1 }}" rel="next">Weiter →</a>
+        {% else %}
+          <span class="pagination__link pagination__link--disabled">Weiter →</span>
+        {% endif %}
+      </nav>
+    {% endif %}
+  {% else %}
+    <div class="empty-state" role="status">
+      <p class="empty-state__title">Keine Trades im Journal.</p>
+      <p class="empty-state__hint">
+        Importiere historische Trades via
+        <code>python -m app.cli.ib_flex_import &lt;xml-file&gt;</code>
+        oder warte, bis der Live-Sync etwas reinzieht.
+      </p>
+    </div>
+  {% endif %}
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  /* Page-level layout */
+  .journal { display: flex; flex-direction: column; gap: var(--space-4); }
+  .journal__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .journal__title { font-size: var(--font-size-title); margin: 0; }
+  .journal__total { color: var(--text-muted); font-size: var(--font-size-small); }
+
+  /* Untagged banner */
+  .untagged-banner {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    background-color: var(--bg-surface);
+    border-left: 3px solid var(--status-yellow);
+    text-decoration: none;
+    color: var(--text-primary);
+    font-size: var(--font-size-body);
+    transition: background-color var(--transition-base);
+  }
+  .untagged-banner:hover { background-color: var(--bg-elevated); }
+  .untagged-banner__count {
+    font-size: var(--font-size-title);
+    font-weight: 600;
+    color: var(--status-yellow);
+  }
+  .untagged-banner__label { flex: 1; }
+  .untagged-banner__cta { color: var(--accent); font-weight: 500; }
+
+  /* Trade table */
+  .trade-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: var(--font-size-body);
+  }
+  .trade-table__th {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .trade-table__th--num { text-align: right; }
+
+  .trade-row { transition: background-color var(--transition-fast); }
+  .trade-row:hover { background-color: var(--bg-surface); }
+  .trade-row td {
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .trade-row__symbol { font-weight: 600; }
+  .trade-row__side { font-size: var(--font-size-small); }
+  .trade-row__side--buy { color: var(--pnl-green); }
+  .trade-row__side--sell { color: var(--pnl-red); }
+  .trade-row__quantity,
+  .trade-row__entry,
+  .trade-row__exit,
+  .trade-row__pnl,
+  .trade-row__time { text-align: right; }
+
+  .pnl-gain { color: var(--pnl-green); }
+  .pnl-loss { color: var(--pnl-red); }
+  .pnl-neutral { color: var(--text-muted); }
+
+  /* Status pills */
+  .status-pill {
+    display: inline-block;
+    padding: 2px var(--space-2);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-radius: 2px;
+  }
+  .status-pill--untagged { background-color: var(--status-yellow); color: var(--bg-void); }
+  .status-pill--tagged { background-color: var(--bg-elevated); color: var(--text-secondary); }
+  .status-pill--open { background-color: var(--bg-elevated); color: var(--text-muted); }
+
+  /* Pagination */
+  .pagination {
+    display: flex;
+    justify-content: center;
+    gap: var(--space-6);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-default);
+  }
+  .pagination__link {
+    color: var(--accent);
+    text-decoration: none;
+    font-size: var(--font-size-body);
+  }
+  .pagination__link--disabled { color: var(--text-muted); cursor: not-allowed; }
+  .pagination__link:hover:not(.pagination__link--disabled) { text-decoration: underline; }
+  .pagination__status { color: var(--text-muted); font-size: var(--font-size-small); }
+
+  /* Empty state */
+  .empty-state {
+    padding: var(--space-8);
+    text-align: center;
+    color: var(--text-muted);
+    background-color: var(--bg-surface);
+    border: 1px dashed var(--border-default);
+  }
+  .empty-state__title { font-size: var(--font-size-section); margin: 0 0 var(--space-2); }
+  .empty-state__hint code {
+    background-color: var(--bg-elevated);
+    padding: 2px var(--space-1);
+    font-family: var(--font-mono);
+    font-size: var(--font-size-small);
+  }
 </style>
 {% endblock %}

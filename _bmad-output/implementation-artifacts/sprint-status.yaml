@@ -39,7 +39,7 @@ development_status:
   epic-2: in-progress
   2-1-trades-datenmodell-flex-import: in-progress
   2-2-live-ib-sync-reconciliation: review
-  2-3-journal-startseite-trade-list: ready-for-dev
+  2-3-journal-startseite-trade-list: review
   2-4-trade-drilldown-inline-expansion: ready-for-dev
 
   # =========================================================================

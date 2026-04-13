@@ -286,7 +286,7 @@ INSERT INTO trades (
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11, $12, $13
+    $7, $8, $9, $10, $11, $12, $13::jsonb
 )
 ON CONFLICT (broker, perm_id) DO NOTHING
 RETURNING id
@@ -298,11 +298,21 @@ async def insert_trades(conn: asyncpg.Connection, trades: Iterable[TradeIn]) -> 
 
     Returns `(inserted_count, duplicate_count)`. Each insert runs as a
     separate statement so a duplicate doesn't roll back the whole batch.
+
+    `trigger_spec` is JSON-serialised here because asyncpg's default
+    codec for JSONB expects a string, not a Python dict. We could
+    register `set_type_codec("jsonb", ...)` per-connection, but doing
+    it here keeps the dependency injection-free.
     """
+
+    import json
 
     inserted = 0
     duplicates = 0
     for trade in trades:
+        trigger_spec_json = (
+            json.dumps(trade.trigger_spec) if trade.trigger_spec is not None else None
+        )
         row = await conn.fetchrow(
             _INSERT_SQL,
             trade.symbol,
@@ -317,7 +327,7 @@ async def insert_trades(conn: asyncpg.Connection, trades: Iterable[TradeIn]) -> 
             trade.fees,
             trade.broker.value,
             trade.perm_id,
-            trade.trigger_spec,
+            trigger_spec_json,
         )
         if row is None:
             duplicates += 1
