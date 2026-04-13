@@ -1,6 +1,6 @@
 # Story 2.2: Live-IB-Sync & Reconciliation
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -17,29 +17,29 @@ so that I don't have to manually trigger imports during the trading day.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: ib_async Client Setup (AC: 1, 3)
-  - [ ] `app/clients/ib.py` mit `IBClient` Klasse
-  - [ ] Verbindung zu TWS/Gateway via ib_async
-  - [ ] Environment: `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID`
-  - [ ] Connection-Lifecycle im FastAPI Lifespan
-- [ ] Task 2: Live-Execution-Listener (AC: 1)
-  - [ ] `ib.execDetailsEvent` subscribe
-  - [ ] On-execution: INSERT in trades mit ON CONFLICT DO NOTHING
-  - [ ] Logging jedes Events via structlog
-- [ ] Task 3: Auto-Reconnect (AC: 3)
-  - [ ] `ib.connectedEvent` / `ib.disconnectedEvent` handlers
-  - [ ] Retry-Loop mit Exponential Backoff (1s, 2s, 4s, 8s, max 60s)
-  - [ ] Bei Disconnect: Missing-Trades-Backfill via reqExecutions() bei Reconnect
-- [ ] Task 4: Scheduled Reconciliation (AC: 2, 4)
-  - [ ] APScheduler-Job "ib_nightly_reconcile"
-  - [ ] Laeuft taeglich um 02:00 UTC (nach Market-Close)
-  - [ ] Flex-Query-Download via IB Flex Web Service API
-  - [ ] UPSERT: Flex-Daten ueberschreiben Live-Sync-Daten bei Konflikten
-- [ ] Task 5: Integration-Test mit Mock-IB (AC: 1, 2, 3)
-  - [ ] Mock ib_async mit pytest-asyncio
-  - [ ] Test: Execution-Event triggert INSERT
-  - [ ] Test: Disconnect + Reconnect funktioniert
-  - [ ] Test: Reconciliation ueberschreibt bei Diskrepanz
+- [x] Task 1: ib_async Client Setup (AC: 1, 3)
+  - [x] `app/clients/ib.py` mit `IBClient` Klasse
+  - [x] Verbindung zu TWS/Gateway via ib_async
+  - [x] Environment: `IB_HOST`, `IB_PORT`, `IB_CLIENT_ID`
+  - [x] Connection-Lifecycle im FastAPI Lifespan
+- [x] Task 2: Live-Execution-Listener (AC: 1)
+  - [x] `ib.execDetailsEvent` subscribe
+  - [x] On-execution: INSERT in trades mit ON CONFLICT DO NOTHING
+  - [x] Logging jedes Events via structlog
+- [x] Task 3: Auto-Reconnect (AC: 3)
+  - [x] `ib.connectedEvent` / `ib.disconnectedEvent` handlers
+  - [x] Retry-Loop mit Exponential Backoff (1s, 2s, 4s, 8s, max 60s)
+  - [x] Bei Disconnect: Missing-Trades-Backfill via reqExecutions() bei Reconnect
+- [x] Task 4: Scheduled Reconciliation (AC: 2, 4)
+  - [x] APScheduler-Job "ib_nightly_reconcile"
+  - [x] Laeuft taeglich um 02:00 UTC (nach Market-Close)
+  - [x] Flex-Query-Download via IB Flex Web Service API
+  - [x] UPSERT: Flex-Daten ueberschreiben Live-Sync-Daten bei Konflikten
+- [x] Task 5: Integration-Test mit Mock-IB (AC: 1, 2, 3)
+  - [x] Mock ib_async mit pytest-asyncio
+  - [x] Test: Execution-Event triggert INSERT
+  - [x] Test: Disconnect + Reconnect funktioniert
+  - [x] Test: Reconciliation ueberschreibt bei Diskrepanz
 
 ## Dev Notes
 

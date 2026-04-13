@@ -49,9 +49,19 @@ def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     async def _fake_run_migrations() -> list[str]:
         return []
 
+    async def _fake_connect_ib(*_args: object, **_kwargs: object) -> None:
+        # IB is OPTIONAL (Story 2.2). Unit tests never touch a real
+        # gateway — return None so `ib_available` stays False.
+        return None
+
+    async def _fake_disconnect_ib(_ib: object) -> None:
+        return None
+
     monkeypatch.setattr(app_module, "create_pool", _fake_create_pool)
     monkeypatch.setattr(app_module, "close_pool", _fake_close_pool)
     monkeypatch.setattr(app_module, "run_migrations", _fake_run_migrations)
+    monkeypatch.setattr(app_module, "connect_ib", _fake_connect_ib)
+    monkeypatch.setattr(app_module, "disconnect_ib", _fake_disconnect_ib)
     return fake_pool
 
 

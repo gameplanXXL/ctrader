@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.clients.ib import connect_ib, disconnect_ib
 from app.clients.mcp import handshake as mcp_handshake
 from app.config import settings
 from app.db.migrate import run_migrations
@@ -72,6 +73,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.db_pool = None
     app.state.mcp_client = None
     app.state.mcp_available = False
+    app.state.ib = None
+    app.state.ib_available = False
 
     try:
         app.state.db_pool = await create_pool()
@@ -88,11 +91,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.mcp_available = mcp_available
         app.state.mcp_client = mcp_client
 
+        # IB Gateway / TWS handshake — best-effort, never blocks startup.
+        # Story 2.2: connection is OPTIONAL. If IB_HOST is not set we
+        # don't even try; ib_available stays False and downstream code
+        # (live-sync handler, reconcile job) skips gracefully.
+        if settings.ib_host:
+            ib = await connect_ib(
+                host=settings.ib_host,
+                port=settings.ib_port,
+                client_id=settings.ib_client_id,
+            )
+        else:
+            logger.info("app.ib_disabled", reason="ib_host not configured")
+            ib = None
+        app.state.ib = ib
+        app.state.ib_available = ib is not None
+
         yield
     finally:
         # Tear down in reverse order of construction. Each step is
         # null-guarded because partial startup failure may leave any of
         # them unset — we still want to close whatever DID succeed.
+        ib = getattr(app.state, "ib", None)
+        if ib is not None:
+            await disconnect_ib(ib)
         mcp_client = getattr(app.state, "mcp_client", None)
         if mcp_client is not None:
             await mcp_client.aclose()

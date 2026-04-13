@@ -1,0 +1,177 @@
+"""Live IB execution → trades-table sync handler (Story 2.2).
+
+Subscribes to `ib.execDetailsEvent` and turns each incoming execution
+into a `TradeIn` + ON CONFLICT INSERT. The Flex import in Story 2.1
+is the historical-batch path; this module is the real-time path.
+
+Reconciliation against Flex (FR5: Flex is source-of-truth) lives in
+`app.services.ib_reconcile` and runs on a schedule that Story 12.1
+will register with APScheduler.
+"""
+
+from __future__ import annotations
+
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+
+import asyncpg
+
+from app.logging import get_logger
+from app.models.trade import AssetClass, TradeIn, TradeSide, TradeSource
+from app.services.ib_flex_import import insert_trades
+
+logger = get_logger(__name__)
+
+
+def _map_asset_class(sec_type: str | None) -> AssetClass | None:
+    if sec_type is None:
+        return None
+    upper = sec_type.upper()
+    if upper in ("STK", "STOCK", "EQUITY"):
+        return AssetClass.STOCK
+    if upper in ("OPT", "OPTION"):
+        return AssetClass.OPTION
+    return None
+
+
+def _map_side(action: str | None) -> TradeSide | None:
+    if action is None:
+        return None
+    upper = action.upper().strip()
+    if upper.startswith("BUY"):
+        return TradeSide.BUY
+    if upper.startswith("SELL"):
+        return TradeSide.SELL
+    if upper.startswith("SHORT"):
+        return TradeSide.SHORT
+    if upper.startswith("COVER"):
+        return TradeSide.COVER
+    return None
+
+
+def execution_to_trade(trade_event: Any) -> TradeIn | None:
+    """Convert an ib_async Trade / Execution event into a TradeIn.
+
+    The event shape is `Trade(contract, order, orderStatus, fills, ...)`
+    where `fills` is a list of `Fill(execution, commissionReport, ...)`.
+    For now we collapse a multi-fill order into a single trade row by
+    summing quantities and using the average fill price. Later stories
+    can split into one row per fill if needed.
+
+    Returns None for any reason the event should be skipped (unsupported
+    asset class, missing fields, no fills yet).
+    """
+
+    contract = getattr(trade_event, "contract", None)
+    if contract is None:
+        return None
+
+    asset_class = _map_asset_class(getattr(contract, "secType", None))
+    if asset_class is None:
+        return None
+
+    symbol = getattr(contract, "symbol", None)
+    if not symbol:
+        return None
+
+    order = getattr(trade_event, "order", None)
+    side = _map_side(getattr(order, "action", None) if order else None)
+    if side is None:
+        return None
+
+    fills = getattr(trade_event, "fills", None) or []
+    if not fills:
+        return None
+
+    total_qty = Decimal("0")
+    weighted_price = Decimal("0")
+    total_fees = Decimal("0")
+    perm_id: str | None = None
+    earliest_time: datetime | None = None
+
+    for fill in fills:
+        execution = getattr(fill, "execution", None)
+        if execution is None:
+            continue
+
+        # ib_async exposes shares as float; we promote to Decimal.
+        shares = Decimal(str(getattr(execution, "shares", 0) or 0))
+        price = Decimal(str(getattr(execution, "price", 0) or 0))
+        if shares <= 0 or price <= 0:
+            continue
+
+        total_qty += shares
+        weighted_price += shares * price
+
+        commission_report = getattr(fill, "commissionReport", None)
+        if commission_report is not None:
+            commission = getattr(commission_report, "commission", None)
+            if commission is not None:
+                total_fees += abs(Decimal(str(commission)))
+
+        if perm_id is None:
+            ib_perm_id = getattr(execution, "permId", None)
+            if ib_perm_id is not None:
+                perm_id = str(ib_perm_id)
+
+        exec_time = getattr(execution, "time", None)
+        if isinstance(exec_time, datetime):
+            if exec_time.tzinfo is None:
+                exec_time = exec_time.replace(tzinfo=UTC)
+            if earliest_time is None or exec_time < earliest_time:
+                earliest_time = exec_time
+
+    if total_qty <= 0 or weighted_price <= 0 or perm_id is None:
+        return None
+
+    avg_price = weighted_price / total_qty
+
+    return TradeIn(
+        symbol=symbol,
+        asset_class=asset_class,
+        side=side,
+        quantity=total_qty,
+        entry_price=avg_price,
+        exit_price=None,
+        opened_at=earliest_time or datetime.now(UTC),
+        closed_at=None,
+        pnl=None,
+        fees=total_fees,
+        broker=TradeSource.IB,
+        perm_id=perm_id,
+    )
+
+
+async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
+    """Process one ib_async Trade event → upsert into trades table.
+
+    Returns True if a new row was inserted, False on duplicate / skip.
+    """
+
+    trade_in = execution_to_trade(trade_event)
+    if trade_in is None:
+        logger.warning(
+            "ib_live_sync.skip",
+            reason="event_not_convertible",
+            symbol=getattr(getattr(trade_event, "contract", None), "symbol", None),
+        )
+        return False
+
+    inserted, duplicates = await insert_trades(conn, [trade_in])
+    if inserted:
+        logger.info(
+            "ib_live_sync.inserted",
+            symbol=trade_in.symbol,
+            side=trade_in.side.value,
+            quantity=str(trade_in.quantity),
+            perm_id=trade_in.perm_id,
+        )
+        return True
+
+    logger.info(
+        "ib_live_sync.duplicate",
+        symbol=trade_in.symbol,
+        perm_id=trade_in.perm_id,
+    )
+    return False

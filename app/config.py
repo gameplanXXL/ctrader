@@ -76,6 +76,31 @@ class Settings(BaseSettings):
         ),
     )
 
+    # ------------------------------------------------------------------
+    # Interactive Brokers — Story 2.2 (Live-Sync) + Story 2.1 (Flex)
+    # ------------------------------------------------------------------
+    ib_host: str | None = Field(
+        default=None,
+        description=(
+            "TWS / IB Gateway host. None = IB live-sync disabled, "
+            "ib_available stays False (graceful degradation)."
+        ),
+    )
+    ib_port: int = Field(
+        default=7497, description="TWS paper=7497, live=7496; Gateway paper=4002, live=4001"
+    )
+    ib_client_id: int = Field(
+        default=1, description="ib_async client ID — must be unique per connection"
+    )
+    ib_flex_token: str | None = Field(
+        default=None,
+        description="IB Flex Web Service token — used for nightly reconciliation download",
+    )
+    ib_flex_query_id: str | None = Field(
+        default=None,
+        description="IB Flex Query ID configured for ctrader trades",
+    )
+
 
 # Singleton instance. Import this, not Settings() directly.
 settings = Settings()
