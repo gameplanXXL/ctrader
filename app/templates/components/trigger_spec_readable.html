@@ -1,12 +1,89 @@
 {#
-  trigger_spec_readable(spec)
-  Tier-2 component, full implementation in Story 3.3.
-  Template-based natural language serialization of the JSONB trigger_spec.
+  trigger_spec_readable(spec, trade=None) — Story 3.3
+
+  Renders the JSONB `trigger_spec` as natural-language German prose
+  (FR18, UX-DR18). The real rendering lives in
+  `app/services/trigger_prose.py`; this macro pulls the prose plus
+  the mistake-tag chips so templates don't need to import the service
+  directly.
+
+  The macro expects the service to be exposed on the Jinja env as
+  `render_trigger_prose` and `render_mistake_tags`. See
+  `app/routers/pages.py` / `app/routers/trades.py` for registration.
+
+  Parameters:
+    spec  — dict | None (trades.trigger_spec as returned by asyncpg)
+    trade — dict | None (the trade row itself — lets prose use symbol/side)
 #}
-{% macro trigger_spec_readable(spec) %}
-<p class="trigger-spec-readable">
-  {# Stub — real implementation in Story 3.3 renders different patterns
-     based on spec.trigger_type (viktor_signal, gordon_hot_pick, manual, ...) #}
-  {{ spec.entry_reason or "Nicht getaggt" }}
-</p>
+{% macro trigger_spec_readable(spec, trade=None) %}
+  {% if spec %}
+    <div class="trigger-spec-readable">
+      <p class="trigger-spec-readable__prose">
+        {{ render_trigger_prose(spec, trade) }}
+      </p>
+      {% set mistakes = render_mistake_tags(spec) %}
+      {% if mistakes %}
+        <ul class="trigger-spec-readable__mistakes" aria-label="Mistake tags">
+          {% for tag in mistakes %}
+            <li class="trigger-spec-readable__mistake-chip">{{ tag }}</li>
+          {% endfor %}
+        </ul>
+      {% endif %}
+      {% if spec.note %}
+        <p class="trigger-spec-readable__note">
+          <span class="trigger-spec-readable__note-label">Note:</span>
+          {{ spec.note }}
+        </p>
+      {% endif %}
+    </div>
+  {% else %}
+    <p class="trigger-spec-readable trigger-spec-readable--empty">Nicht getaggt</p>
+  {% endif %}
 {% endmacro %}
+
+<style>
+  .trigger-spec-readable {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .trigger-spec-readable__prose {
+    margin: 0;
+    font-size: var(--font-size-body);
+    color: var(--text-primary);
+  }
+  .trigger-spec-readable--empty {
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .trigger-spec-readable__mistakes {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-1);
+  }
+  .trigger-spec-readable__mistake-chip {
+    background-color: rgba(239, 68, 68, 0.12);
+    color: var(--color-loss, #ef4444);
+    border: 1px solid rgba(239, 68, 68, 0.3);
+    padding: 2px var(--space-2);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .trigger-spec-readable__note {
+    margin: 0;
+    font-size: var(--font-size-small);
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  .trigger-spec-readable__note-label {
+    color: var(--text-muted);
+    text-transform: uppercase;
+    font-size: var(--font-size-label);
+    letter-spacing: 0.05em;
+    margin-right: var(--space-1);
+  }
+</style>

@@ -15,6 +15,7 @@ import asyncpg
 import pytest
 
 from app.db.migrate import run_migrations
+from app.db.pool import _init_connection
 from app.models.trade import AssetClass, TradeIn, TradeSide, TradeSource
 from app.services.ib_flex_import import insert_trades
 from app.services.trade_query import DEFAULT_PAGE_SIZE, get_trade_detail, list_trades
@@ -32,6 +33,8 @@ def _skip_if_no_docker() -> None:
 async def conn(pg_dsn: str) -> asyncpg.Connection:
     await run_migrations(dsn=pg_dsn)
     connection = await asyncpg.connect(dsn=pg_dsn)
+    # Register the JSONB codec that production uses (Story 3.3 fix).
+    await _init_connection(connection)
     try:
         await connection.execute("DELETE FROM trades")
         yield connection

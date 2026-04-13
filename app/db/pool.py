@@ -10,6 +10,7 @@ References:
 
 from __future__ import annotations
 
+import json
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -19,6 +20,25 @@ from app.config import settings
 from app.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+async def _init_connection(conn: asyncpg.Connection) -> None:
+    """Per-connection setup — register a JSONB codec so `trigger_spec`
+    round-trips as a Python dict instead of a raw JSON string.
+
+    Without this, `row["trigger_spec"]` is `str` and the Story 3.3
+    prose renderer crashes with `AttributeError: 'str' object has no
+    attribute 'get'`. asyncpg's default is to return JSONB as text;
+    registering `json.loads`/`json.dumps` here makes it behave like
+    the Python `dict` the service layer expects.
+    """
+
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=json.dumps,
+        decoder=json.loads,
+        schema="pg_catalog",
+    )
 
 
 async def create_pool() -> asyncpg.Pool:
@@ -33,6 +53,7 @@ async def create_pool() -> asyncpg.Pool:
         dsn=settings.database_url,
         min_size=settings.db_pool_min_size,
         max_size=settings.db_pool_max_size,
+        init=_init_connection,
     )
     if pool is None:
         # asyncpg.create_pool returns Optional[Pool] in the type stubs; in

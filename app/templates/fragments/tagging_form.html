@@ -1,0 +1,224 @@
+{#
+  Tagging form — Story 3.1
+
+  POSTed to /trades/{id}/tag via HTMX. The endpoint returns a
+  fragments/tagging_success.html swap + an HX-Trigger: showToast
+  header the base layout's toast component listens for.
+
+  The form is intentionally minimal — 4 required dropdowns, optional
+  mistake_tags checkbox group, optional note. First field is auto-
+  focused (UX-DR58). Validation errors are re-rendered inline.
+
+  All dropdown sources live in the template context:
+    - strategies          list[(id, label)]
+    - trigger_types       list[TaxonomyEntry]
+    - horizons            list[HorizonEntry]
+    - exit_reasons        list[TaxonomyEntry]
+    - mistake_tags        list[TaxonomyEntry]
+#}
+<div class="tagging-form" id="tagging-form-{{ trade.id }}">
+  {% if error %}
+    <div class="tagging-form__error" role="alert">
+      {{ error }}
+    </div>
+  {% endif %}
+
+  <form
+    hx-post="/trades/{{ trade.id }}/tag"
+    hx-target="#tagging-form-{{ trade.id }}"
+    hx-swap="outerHTML"
+    class="tagging-form__body"
+    autocomplete="off"
+  >
+    <h3 class="tagging-form__title">Tag This Trade</h3>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="strategy-{{ trade.id }}">Strategy</label>
+      <select
+        id="strategy-{{ trade.id }}"
+        name="strategy"
+        class="tagging-form__select"
+        autofocus
+        required
+      >
+        <option value="" disabled selected>— select —</option>
+        {% for sid, slabel in strategies %}
+          <option value="{{ sid }}">{{ slabel }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="trigger-type-{{ trade.id }}">Trigger Source</label>
+      <select
+        id="trigger-type-{{ trade.id }}"
+        name="trigger_type"
+        class="tagging-form__select"
+        required
+      >
+        <option value="" disabled selected>— select —</option>
+        {% for entry in trigger_types %}
+          <option value="{{ entry.id }}">{{ entry.label or entry.id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="horizon-{{ trade.id }}">Horizon</label>
+      <select
+        id="horizon-{{ trade.id }}"
+        name="horizon"
+        class="tagging-form__select"
+        required
+      >
+        <option value="" disabled selected>— select —</option>
+        {% for entry in horizons %}
+          <option value="{{ entry.id }}">{{ entry.label or entry.id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="exit-reason-{{ trade.id }}">Exit Reason</label>
+      <select
+        id="exit-reason-{{ trade.id }}"
+        name="exit_reason"
+        class="tagging-form__select"
+        required
+      >
+        <option value="" disabled selected>— select —</option>
+        {% for entry in exit_reasons %}
+          <option value="{{ entry.id }}">{{ entry.label or entry.id }}</option>
+        {% endfor %}
+      </select>
+    </div>
+
+    <div class="tagging-form__field tagging-form__field--mistakes">
+      <span class="form-label">Mistake Tags (optional)</span>
+      <div class="tagging-form__checkboxes">
+        {% for entry in mistake_tags %}
+          <label class="tagging-form__checkbox">
+            <input type="checkbox" name="mistake_tags[]" value="{{ entry.id }}">
+            <span>{{ entry.label or entry.id }}</span>
+          </label>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="note-{{ trade.id }}">Note (optional)</label>
+      <textarea
+        id="note-{{ trade.id }}"
+        name="note"
+        class="tagging-form__textarea"
+        rows="2"
+        maxlength="2000"
+      ></textarea>
+    </div>
+
+    <div class="tagging-form__field">
+      <label class="form-label" for="entry-reason-{{ trade.id }}">Entry Reason (optional)</label>
+      <input
+        id="entry-reason-{{ trade.id }}"
+        name="entry_reason"
+        type="text"
+        class="tagging-form__input"
+        maxlength="2000"
+        placeholder="Warum bist du eingestiegen?"
+      >
+    </div>
+
+    <div class="tagging-form__actions">
+      <button type="submit" class="tagging-form__submit">Tag &amp; Next</button>
+      <span class="tagging-form__hint">Press Enter to save</span>
+    </div>
+  </form>
+</div>
+
+<style>
+  .tagging-form {
+    padding: var(--space-4);
+    background-color: var(--bg-surface);
+    border-left: 3px solid var(--accent);
+    margin-top: var(--space-3);
+  }
+  .tagging-form__title {
+    margin: 0 0 var(--space-3);
+    font-size: var(--font-size-section);
+  }
+  .tagging-form__body {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .tagging-form__field {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .form-label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+    display: block;
+  }
+  .tagging-form__select,
+  .tagging-form__input,
+  .tagging-form__textarea {
+    background-color: var(--bg-void);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+  }
+  .tagging-form__select:focus,
+  .tagging-form__input:focus,
+  .tagging-form__textarea:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .tagging-form__checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-4);
+  }
+  .tagging-form__checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-small);
+    color: var(--text-secondary);
+  }
+  .tagging-form__actions {
+    display: flex;
+    align-items: center;
+    gap: var(--space-3);
+    margin-top: var(--space-2);
+  }
+  .tagging-form__submit {
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border: none;
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .tagging-form__submit:hover {
+    filter: brightness(1.1);
+  }
+  .tagging-form__hint {
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+    font-style: italic;
+  }
+  .tagging-form__error {
+    padding: var(--space-2) var(--space-3);
+    background-color: rgba(239, 68, 68, 0.1);
+    border: 1px solid var(--color-loss, #ef4444);
+    color: var(--color-loss, #ef4444);
+    margin-bottom: var(--space-3);
+    font-size: var(--font-size-small);
+  }
+</style>

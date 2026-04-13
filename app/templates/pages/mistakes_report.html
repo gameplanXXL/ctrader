@@ -1,0 +1,144 @@
+{% extends "base.html" %}
+
+{% block title %}Top Mistakes · ctrader{% endblock %}
+
+{% block content %}
+<section class="mistakes-report">
+  <header class="mistakes-report__header">
+    <h1 class="mistakes-report__title">Top Mistakes</h1>
+    <nav class="mistakes-report__windows" aria-label="Zeitfenster">
+      {% for w, label in [("7d", "Letzte 7 Tage"), ("30d", "Letzte 30 Tage"), ("90d", "Letzte 90 Tage"), ("ytd", "YTD"), ("all", "All Time")] %}
+        <a
+          href="/journal/mistakes?window={{ w }}"
+          class="mistakes-report__window {% if window == w %}mistakes-report__window--active{% endif %}"
+        >{{ label }}</a>
+      {% endfor %}
+    </nav>
+  </header>
+
+  <p class="mistakes-report__meta">
+    {% if window_start and window_end %}
+      {{ window_start | format_time }} — {{ window_end | format_time }} UTC
+      · {{ total_trades }} getaggte Trades im Fenster
+    {% endif %}
+  </p>
+
+  {% if rows %}
+    <table class="mistakes-table">
+      <thead>
+        <tr>
+          <th class="mistakes-table__th">Mistake</th>
+          <th class="mistakes-table__th mistakes-table__th--num">Haeufigkeit</th>
+          <th class="mistakes-table__th mistakes-table__th--num">Gesamt-Kosten</th>
+          <th class="mistakes-table__th mistakes-table__th--num">Avg / Trade</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in rows %}
+          <tr>
+            <td class="mistakes-table__cell">
+              <span class="mistakes-table__tag">{{ tag_labels.get(row.tag, row.tag) }}</span>
+              <span class="mistakes-table__tag-id">{{ row.tag }}</span>
+            </td>
+            <td class="mistakes-table__cell tabular mistakes-table__cell--num">{{ row.count }}</td>
+            <td class="mistakes-table__cell tabular mistakes-table__cell--num {{ row.total_pnl_float | pnl_class }}">
+              {{ row.total_pnl_float | format_pnl }}
+            </td>
+            <td class="mistakes-table__cell tabular mistakes-table__cell--num {{ row.avg_pnl_float | pnl_class }}">
+              {{ row.avg_pnl_float | format_pnl }}
+            </td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% else %}
+    <p class="mistakes-report__empty">
+      Keine Trades mit Mistake-Tags im gewaehlten Zeitfenster.
+      Tagging-Form im Trade-Drilldown nutzen, um Mistakes zu erfassen.
+    </p>
+  {% endif %}
+</section>
+
+<style>
+  .mistakes-report {
+    max-width: 960px;
+  }
+  .mistakes-report__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    margin-bottom: var(--space-3);
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+  .mistakes-report__title {
+    margin: 0;
+    font-size: var(--font-size-page-title, 28px);
+  }
+  .mistakes-report__windows {
+    display: flex;
+    gap: var(--space-2);
+  }
+  .mistakes-report__window {
+    padding: var(--space-1) var(--space-3);
+    border: 1px solid var(--border-default);
+    color: var(--text-secondary);
+    font-size: var(--font-size-small);
+    text-decoration: none;
+  }
+  .mistakes-report__window:hover {
+    border-color: var(--accent);
+    color: var(--text-primary);
+  }
+  .mistakes-report__window--active {
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border-color: var(--accent);
+  }
+  .mistakes-report__meta {
+    color: var(--text-muted);
+    font-size: var(--font-size-small);
+    margin-bottom: var(--space-4);
+  }
+  .mistakes-report__empty {
+    color: var(--text-muted);
+    font-style: italic;
+    padding: var(--space-6);
+    border: 1px dashed var(--border-subtle);
+    text-align: center;
+  }
+  .mistakes-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .mistakes-table__th {
+    text-align: left;
+    padding: var(--space-2) var(--space-3);
+    border-bottom: 1px solid var(--border-default);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .mistakes-table__th--num {
+    text-align: right;
+  }
+  .mistakes-table__cell {
+    padding: var(--space-3);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .mistakes-table__cell--num {
+    text-align: right;
+  }
+  .mistakes-table__tag {
+    display: block;
+    color: var(--text-primary);
+  }
+  .mistakes-table__tag-id {
+    display: block;
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    font-family: var(--font-mono, monospace);
+  }
+</style>
+{% endblock %}

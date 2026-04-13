@@ -156,3 +156,30 @@ async def get_trade_detail(conn: asyncpg.Connection, trade_id: int) -> dict[str,
 
     row = await conn.fetchrow(_DETAIL_SQL, trade_id)
     return _row_to_dict(row)
+
+
+# Story 3.1 AC #6 — after a successful tag, jump to the oldest still-
+# untagged trade. Filter mirrors the untagged-counter from list_trades:
+# only IB closed trades are taggable today (bot trades carry a
+# trigger_spec by construction).
+_NEXT_UNTAGGED_SQL = """
+SELECT id, symbol, asset_class, side, opened_at, closed_at
+  FROM trades
+ WHERE trigger_spec IS NULL
+   AND broker = 'ib'
+   AND closed_at IS NOT NULL
+ ORDER BY opened_at ASC, id ASC
+ LIMIT 1
+"""
+
+
+async def next_untagged_trade(conn: asyncpg.Connection) -> dict[str, Any] | None:
+    """Return the oldest untagged IB trade, or None if the queue is empty.
+
+    Story 3.1 AC #6 (Post-hoc Journey, UX-DR34): after a successful tag,
+    the form jumps to the next untagged trade so Chef can stay in a
+    focused tagging flow without navigating back to the journal.
+    """
+
+    row = await conn.fetchrow(_NEXT_UNTAGGED_SQL)
+    return _row_to_dict(row)

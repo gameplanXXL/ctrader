@@ -384,7 +384,7 @@ INSERT INTO trades (
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11, $12, $13::jsonb
+    $7, $8, $9, $10, $11, $12, $13
 )
 ON CONFLICT (broker, perm_id) DO NOTHING
 RETURNING id
@@ -401,7 +401,7 @@ INSERT INTO trades (
 )
 VALUES (
     $1, $2, $3, $4, $5, $6,
-    $7, $8, $9, $10, $11, $12, $13::jsonb
+    $7, $8, $9, $10, $11, $12, $13
 )
 ON CONFLICT (broker, perm_id) DO UPDATE
    SET quantity    = EXCLUDED.quantity,
@@ -415,18 +415,22 @@ RETURNING id, (xmax = 0) AS inserted
 """
 
 
-def _trigger_spec_json(spec: Any) -> str | None:
-    """Serialize `trigger_spec` to JSON for asyncpg's JSONB binding.
+def _trigger_spec_json(spec: Any) -> dict[str, Any] | None:
+    """Normalize `trigger_spec` for asyncpg's JSONB codec.
 
-    Defensive — accepts dicts containing Decimal/datetime/etc by
-    falling back to `default=str`. Code-review fix M12.
+    asyncpg's JSONB codec (registered in `app.db.pool._init_connection`)
+    accepts Python dicts directly and encodes them with `json.dumps`.
+    This helper round-trips once through `json.dumps(..., default=str)`
+    so Decimal / datetime / custom objects flatten to primitives
+    BEFORE the codec hits them — the defensive layer from code-review
+    fix M12 is preserved.
     """
 
     if spec is None:
         return None
     import json as _json
 
-    return _json.dumps(spec, default=str, sort_keys=True)
+    return _json.loads(_json.dumps(spec, default=str, sort_keys=True))
 
 
 async def insert_trades(conn: asyncpg.Connection, trades: Iterable[TradeIn]) -> tuple[int, int]:

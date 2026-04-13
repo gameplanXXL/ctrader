@@ -53,11 +53,11 @@ development_status:
   # =========================================================================
   # EPIC 3: Trade-Tagging & Trigger-Provenance
   # =========================================================================
-  epic-3: backlog
-  3-1-post-hoc-tagging-form: ready-for-dev
-  3-2-trigger-spec-jsonb: ready-for-dev
-  3-3-trigger-spec-readable: ready-for-dev
-  3-4-mistake-tags-top-n-report: ready-for-dev
+  epic-3: in-progress
+  3-1-post-hoc-tagging-form: review
+  3-2-trigger-spec-jsonb: review
+  3-3-trigger-spec-readable: review
+  3-4-mistake-tags-top-n-report: review
 
   # =========================================================================
   # EPIC 4: Journal-Intelligence — Facetten, Aggregation & Visualisierung

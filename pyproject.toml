@@ -21,6 +21,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "pytailwindcss>=0.3.0",
     "ib-async>=2.1.0",
+    "python-multipart>=0.0.26",
 ]
 
 [dependency-groups]

@@ -1,0 +1,24 @@
+{#
+  Tagging-success swap — Story 3.1 AC #6
+
+  Rendered after POST /trades/{id}/tag succeeds. The HX-Trigger
+  response header fires the toast; this fragment replaces the form
+  body with a short confirmation and — if another untagged trade
+  exists — a quick jump link to continue the flow.
+#}
+<div class="tagging-form tagging-form--done" id="tagging-form-{{ trade_id }}">
+  <p class="tagging-form__done-message">Trade getaggt ✓</p>
+  {% if next_trade %}
+    <a
+      class="tagging-form__next-link"
+      href="/journal?expand={{ next_trade.id }}"
+      hx-get="/trades/{{ next_trade.id }}/tagging_form"
+      hx-target="#tagging-form-{{ trade_id }}"
+      hx-swap="outerHTML"
+    >
+      Weiter mit {{ next_trade.symbol }} →
+    </a>
+  {% else %}
+    <p class="tagging-form__done-hint">Keine weiteren ungetaggten Trades.</p>
+  {% endif %}
+</div>

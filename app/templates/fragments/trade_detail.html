@@ -93,11 +93,18 @@
   {% if trade.trigger_spec is not none %}
     <section class="trade-detail__trigger">
       <h3>Trigger Provenance</h3>
-      <p class="trade-detail__placeholder">
-        Lesbare Darstellung kommt in Story 3.3 (trigger_spec_readable Macro).
-        Roh-JSON unten zur Verifikation.
-      </p>
-      <pre class="trade-detail__raw"><code>{{ trade.trigger_spec | tojson(indent=2) }}</code></pre>
+      {% from "components/trigger_spec_readable.html" import trigger_spec_readable %}
+      {{ trigger_spec_readable(trade.trigger_spec, trade) }}
+    </section>
+  {% elif trade.broker == "ib" and trade.closed_at is not none %}
+    <section
+      class="trade-detail__tagging-slot"
+      id="tagging-slot-{{ trade.id }}"
+      hx-get="/trades/{{ trade.id }}/tagging_form"
+      hx-trigger="load once"
+      hx-swap="innerHTML"
+    >
+      <p class="trade-detail__placeholder">Loading tagging form…</p>
     </section>
   {% endif %}
 </div>

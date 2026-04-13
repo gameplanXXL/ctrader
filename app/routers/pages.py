@@ -22,9 +22,12 @@ from fastapi.templating import Jinja2Templates
 from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
 from app.services.expectancy import compute_expectancy_at_entry
+from app.services.mistakes_report import MistakeRow, top_n_mistakes
 from app.services.pnl import compute_pnl
 from app.services.r_multiple import compute_r_multiple
+from app.services.taxonomy import get_taxonomy
 from app.services.trade_query import DEFAULT_PAGE_SIZE, get_trade_detail, list_trades
+from app.services.trigger_prose import render_mistake_tags, render_trigger_prose
 
 logger = get_logger(__name__)
 
@@ -38,6 +41,10 @@ templates = Jinja2Templates(directory=str(_TEMPLATES_DIR))
 # `{{ trade.pnl | format_pnl }}` etc. Story 2.3 added these.
 for filter_name, filter_func in JINJA_FILTERS.items():
     templates.env.filters[filter_name] = filter_func
+# Story 3.3 — expose the trigger-prose renderers so the journal
+# expansion prefill also renders trigger_spec_readable correctly.
+templates.env.globals["render_trigger_prose"] = render_trigger_prose
+templates.env.globals["render_mistake_tags"] = render_mistake_tags
 
 
 def _render(request: Request, page: str):
@@ -123,6 +130,61 @@ async def journal_page(
             "page": journal_page_data,
             "expand_id": expand,
             "expansion": expansion_context,
+        },
+    )
+
+
+@router.get("/journal/mistakes", include_in_schema=False)
+async def mistakes_report_page(
+    request: Request,
+    window: str = Query(default="30d", description="Time window — 7d, 30d, 90d, ytd, all"),
+):
+    """Story 3.4 — Top-N Mistakes report.
+
+    Aggregates `trigger_spec->mistake_tags` over a window and ranks by
+    total cost (most negative P&L first), then frequency. Renders an
+    empty table with a helpful hint when no tags are present.
+    """
+
+    rows: list[MistakeRow] = []
+    window_start = None
+    window_end = None
+    total_trades = 0
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                rows, window_start, window_end = await top_n_mistakes(conn, window=window)
+                # Count ALL tagged trades in-window so the UI can show
+                # "3 mistakes across 12 trades" rather than a bare count.
+                total_trades = await conn.fetchval(
+                    """
+                    SELECT COUNT(*) FROM trades
+                     WHERE trigger_spec IS NOT NULL
+                       AND opened_at BETWEEN $1 AND $2
+                    """,
+                    window_start,
+                    window_end,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("mistakes_report.db_error", error=str(exc))
+
+    # Look up the friendly label for each tag from taxonomy.yaml.
+    taxonomy = get_taxonomy()
+    tag_labels = {entry.id: (entry.label or entry.id) for entry in taxonomy.mistake_tags}
+
+    return templates.TemplateResponse(
+        request,
+        "pages/mistakes_report.html",
+        {
+            "active_route": "journal",
+            "rows": rows,
+            "tag_labels": tag_labels,
+            "window": window,
+            "window_start": window_start,
+            "window_end": window_end,
+            "total_trades": total_trades or 0,
         },
     )
 

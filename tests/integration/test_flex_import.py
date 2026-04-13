@@ -20,6 +20,7 @@ import asyncpg
 import pytest
 
 from app.db.migrate import run_migrations
+from app.db.pool import _init_connection
 from app.services.ib_flex_import import import_flex_xml
 
 pytestmark = pytest.mark.integration
@@ -45,6 +46,9 @@ async def conn(pg_dsn: str) -> asyncpg.Connection:
     await run_migrations(dsn=pg_dsn)
 
     connection = await asyncpg.connect(dsn=pg_dsn)
+    # Register the JSONB codec that production uses so trigger_spec
+    # can be passed as a dict (Story 3.3 fix).
+    await _init_connection(connection)
     try:
         # Each test starts with an empty trades table — drop and rerun
         # the migration so we avoid cross-test interference.

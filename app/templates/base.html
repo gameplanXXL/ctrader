@@ -13,6 +13,67 @@
   <main class="ctrader-main">
     {% block content %}{% endblock %}
   </main>
+
+  {# Toast host — listens for `showToast` HX-Trigger events from any
+     endpoint (Story 3.1 AC #6). The payload carries `message` and
+     an optional `variant` ∈ {success, error, info, warning}. #}
+  <div id="toast-host" aria-live="polite"></div>
+  <script>
+    (function () {
+      var host = document.getElementById('toast-host');
+      if (!host) return;
+      document.body.addEventListener('showToast', function (evt) {
+        var detail = evt.detail || {};
+        var message = detail.message || 'OK';
+        var variant = detail.variant || 'info';
+        var node = document.createElement('div');
+        node.className = 'toast toast--' + variant;
+        node.setAttribute('role', variant === 'error' ? 'alert' : 'status');
+        node.textContent = message;
+        host.appendChild(node);
+        setTimeout(function () { node.remove(); }, 3000);
+      });
+    })();
+  </script>
+
+  <style>
+    /* Toast-host positioning — bottom-right, stacked (UX-DR51). */
+    #toast-host {
+      position: fixed;
+      bottom: var(--space-4, 16px);
+      right: var(--space-4, 16px);
+      display: flex;
+      flex-direction: column;
+      gap: var(--space-2, 8px);
+      z-index: 1000;
+      pointer-events: none;
+    }
+    #toast-host .toast {
+      pointer-events: auto;
+      padding: var(--space-2, 8px) var(--space-4, 16px);
+      background-color: var(--bg-elevated, #1f2937);
+      color: var(--text-primary, #f9fafb);
+      border-left: 3px solid var(--accent, #3b82f6);
+      min-width: 200px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+      font-size: var(--font-size-small, 13px);
+      animation: toast-in 0.2s ease-out;
+    }
+    #toast-host .toast--success {
+      border-left-color: var(--color-win, #10b981);
+    }
+    #toast-host .toast--error {
+      border-left-color: var(--color-loss, #ef4444);
+    }
+    #toast-host .toast--warning {
+      border-left-color: #f59e0b;
+    }
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateY(8px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+  </style>
+
   <style>
     /* Layout-level styles that depend on design tokens. */
     .ctrader-main {
