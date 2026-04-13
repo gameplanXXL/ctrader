@@ -1,6 +1,6 @@
 # Story 2.1: Trade-Datenmodell & IB Flex Query Import
 
-Status: in-progress
+Status: review
 
 ## Story
 
@@ -18,29 +18,29 @@ so that my trading history is captured in ctrader from day one.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Migration 002_trades_table.sql (AC: 1)
-  - [ ] Tabelle `trades` mit allen Spalten
-  - [ ] UNIQUE constraint auf `(broker, perm_id)`
-  - [ ] Indices: `idx_trades_symbol`, `idx_trades_opened_at`, `idx_trades_broker`, GIN `idx_trades_trigger_spec`
-- [ ] Task 2: Pydantic-Models (AC: 1)
-  - [ ] `app/models/trade.py` mit `Trade` Model
-  - [ ] Enum-Bindings an trade_source, trade_side
-- [ ] Task 3: IB Flex Query Parser (AC: 3, 4)
-  - [ ] `app/services/ib_flex_import.py`
-  - [ ] XML-Parsing via `xml.etree.ElementTree` oder `lxml`
-  - [ ] Handles Trades-Node fuer Aktien
-  - [ ] Handles OptionsTrades-Node fuer Single-Leg
-  - [ ] Multi-Leg-Spread-Detection (TradeID-Gruppierung) + Skip mit WARN
-- [ ] Task 4: Duplikat-Erkennung via permId (AC: 5)
-  - [ ] INSERT ... ON CONFLICT (broker, perm_id) DO NOTHING
-  - [ ] Return-Count (imported, skipped)
-- [ ] Task 5: CLI-Command / Endpoint fuer Import (AC: 3, 4)
-  - [ ] `python -m app.cli ib-flex-import <xml-file>`
-  - [ ] Oder POST `/admin/import/ib-flex` mit file upload
-- [ ] Task 6: Integration-Tests (AC: 3, 4, 5)
-  - [ ] Test mit Sample-XML fuer Aktien
-  - [ ] Test mit Sample-XML fuer Options
-  - [ ] Test Duplikat-Import (Row-Count unveraendert)
+- [x] Task 1: Migration 002_trades_table.sql (AC: 1)
+  - [x] Tabelle `trades` mit allen Spalten
+  - [x] UNIQUE constraint auf `(broker, perm_id)`
+  - [x] Indices: `idx_trades_symbol`, `idx_trades_opened_at`, `idx_trades_broker`, GIN `idx_trades_trigger_spec`
+- [x] Task 2: Pydantic-Models (AC: 1)
+  - [x] `app/models/trade.py` mit `Trade` Model
+  - [x] Enum-Bindings an trade_source, trade_side
+- [x] Task 3: IB Flex Query Parser (AC: 3, 4)
+  - [x] `app/services/ib_flex_import.py`
+  - [x] XML-Parsing via `xml.etree.ElementTree` oder `lxml`
+  - [x] Handles Trades-Node fuer Aktien
+  - [x] Handles OptionsTrades-Node fuer Single-Leg
+  - [x] Multi-Leg-Spread-Detection (TradeID-Gruppierung) + Skip mit WARN
+- [x] Task 4: Duplikat-Erkennung via permId (AC: 5)
+  - [x] INSERT ... ON CONFLICT (broker, perm_id) DO NOTHING
+  - [x] Return-Count (imported, skipped)
+- [x] Task 5: CLI-Command / Endpoint fuer Import (AC: 3, 4)
+  - [x] `python -m app.cli ib-flex-import <xml-file>`
+  - [x] Oder POST `/admin/import/ib-flex` mit file upload
+- [x] Task 6: Integration-Tests (AC: 3, 4, 5)
+  - [x] Test mit Sample-XML fuer Aktien
+  - [x] Test mit Sample-XML fuer Options
+  - [x] Test Duplikat-Import (Row-Count unveraendert)
 
 ## Dev Notes
 
