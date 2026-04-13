@@ -1,6 +1,6 @@
 # Story 2.1: Trade-Datenmodell & IB Flex Query Import
 
-Status: ready-for-dev
+Status: in-progress
 
 ## Story
 

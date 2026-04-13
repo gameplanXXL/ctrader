@@ -36,8 +36,8 @@ development_status:
   # =========================================================================
   # EPIC 2: Trade-Journal & IB-Import
   # =========================================================================
-  epic-2: backlog
-  2-1-trades-datenmodell-flex-import: ready-for-dev
+  epic-2: in-progress
+  2-1-trades-datenmodell-flex-import: in-progress
   2-2-live-ib-sync-reconciliation: ready-for-dev
   2-3-journal-startseite-trade-list: ready-for-dev
   2-4-trade-drilldown-inline-expansion: ready-for-dev

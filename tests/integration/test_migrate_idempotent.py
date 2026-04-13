@@ -32,11 +32,28 @@ def _skip_if_no_docker() -> None:
         pytest.skip("docker not available — integration tests require a Docker daemon")
 
 
-async def test_first_run_applies_001(pg_dsn: str) -> None:
-    """First `run_migrations` against a fresh DB applies exactly 001."""
+async def test_run_migrations_records_001(pg_dsn: str) -> None:
+    """After running migrations the schema_migrations table records 001.
 
-    applied = await run_migrations(dsn=pg_dsn)
-    assert "001" in applied
+    Note: this test used to assert `"001" in applied` from a single
+    `run_migrations()` call, but the session-scoped `pg_container`
+    fixture means another test module may have already applied the
+    migrations before us — in which case `applied` is empty (idempotent
+    by design). The stronger, order-independent assertion is that 001
+    is recorded in `schema_migrations` after the call, not that it was
+    applied *this call*.
+    """
+
+    await run_migrations(dsn=pg_dsn)
+
+    conn = await asyncpg.connect(dsn=pg_dsn)
+    try:
+        rows = await conn.fetch("SELECT version FROM schema_migrations")
+    finally:
+        await conn.close()
+
+    versions = {row["version"] for row in rows}
+    assert "001" in versions
 
 
 async def test_second_run_is_noop(pg_dsn: str) -> None:

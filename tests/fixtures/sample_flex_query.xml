@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FlexQueryResponse queryName="ctrader-test-export" type="AF">
+  <FlexStatements count="1">
+    <FlexStatement accountId="U1234567" fromDate="20260301" toDate="20260413">
+      <Trades>
+        <!-- Plain stock trade -->
+        <Trade
+          tradeID="1001"
+          permID="1000000001"
+          symbol="AAPL"
+          assetCategory="STK"
+          buySell="BUY"
+          quantity="100"
+          tradePrice="150.00"
+          ibCommission="-1.00"
+          dateTime="20260410;093000"
+        />
+        <!-- Stock sell -->
+        <Trade
+          tradeID="1002"
+          permID="1000000002"
+          symbol="MSFT"
+          assetCategory="STK"
+          buySell="SELL"
+          quantity="50"
+          tradePrice="380.50"
+          ibCommission="-0.75"
+          dateTime="20260410 094500"
+        />
+        <!-- Single-leg option (call buy) -->
+        <Trade
+          tradeID="2001"
+          permID="2000000001"
+          symbol="AAPL  260620C00160000"
+          underlyingSymbol="AAPL"
+          assetCategory="OPT"
+          buySell="BUY"
+          quantity="2"
+          tradePrice="3.50"
+          ibCommission="-1.05"
+          dateTime="20260410;100000"
+          ibOrderID="ORD-OPT-1"
+        />
+        <!-- Multi-leg spread (vertical) — TWO legs, same ibOrderID, same underlying -->
+        <Trade
+          tradeID="2002"
+          permID="2000000002"
+          symbol="AAPL  260620C00160000"
+          underlyingSymbol="AAPL"
+          assetCategory="OPT"
+          buySell="BUY"
+          quantity="1"
+          tradePrice="3.50"
+          ibCommission="-0.65"
+          dateTime="20260411;103000"
+          ibOrderID="ORD-SPREAD-1"
+        />
+        <Trade
+          tradeID="2003"
+          permID="2000000003"
+          symbol="AAPL  260620C00170000"
+          underlyingSymbol="AAPL"
+          assetCategory="OPT"
+          buySell="SELL"
+          quantity="1"
+          tradePrice="1.50"
+          ibCommission="-0.65"
+          dateTime="20260411;103000"
+          ibOrderID="ORD-SPREAD-1"
+        />
+        <!-- Invalid: missing permID -->
+        <Trade
+          tradeID="9999"
+          symbol="BROKE"
+          assetCategory="STK"
+          buySell="BUY"
+          quantity="10"
+          tradePrice="1.00"
+          dateTime="20260412;110000"
+        />
+      </Trades>
+    </FlexStatement>
+  </FlexStatements>
+</FlexQueryResponse>
