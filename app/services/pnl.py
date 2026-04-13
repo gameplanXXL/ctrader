@@ -3,49 +3,60 @@ strategy aggregations in Epic 6.
 
 Story 2.4 scope: net P&L for a closed stock/option trade including
 fees. CFD funding-rates land in Phase 2 — we mark them None for now.
+
+Sign convention (corrected after Epic-2 code review, finding H1):
+- LONG side (`buy` open, `sell` close pair):
+  profit when exit > entry → `(exit - entry) * qty`
+- SHORT side (`short` open, `cover` close pair):
+  profit when exit < entry → `(entry - exit) * qty`
+
+Both `short` AND `cover` belong to the short formula. The cover is
+the close-leg of a short — covering below the original short price is
+profit. Earlier versions grouped `cover` with `buy`, which silently
+inverted the sign for every short close and would have corrupted
+strategy aggregations downstream (FR12).
 """
 
 from __future__ import annotations
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from typing import Any
 
 
-def compute_pnl(trade: dict[str, Any]) -> Decimal | None:
-    """Return net P&L (gross minus fees) for a closed trade, else None.
+def _to_decimal(value: Any) -> Decimal | None:
+    """Safe Decimal coercion that goes through `str()` to avoid binary-
+    float artifacts (`Decimal(1.5)` → `Decimal('1.5000...0444...')`).
 
-    `trade` is the dict shape returned by `trade_query.get_trade_detail`.
-
-    Sign convention follows the trader convention:
-    - BUY closed at higher exit  → positive
-    - SELL/SHORT closed at lower exit → positive
+    Used by both `compute_pnl` and `compute_r_multiple` so financial
+    math always lands on `Decimal('1.50')`, never on the float-derived
+    long form.
     """
 
-    exit_price = trade.get("exit_price")
-    entry_price = trade.get("entry_price")
-    quantity = trade.get("quantity")
-    if exit_price is None or entry_price is None or quantity is None:
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation):
         return None
 
-    try:
-        exit_d = Decimal(exit_price)
-        entry_d = Decimal(entry_price)
-        qty_d = Decimal(quantity)
-    except (TypeError, ValueError):
+
+def compute_pnl(trade: dict[str, Any]) -> Decimal | None:
+    """Return net P&L (gross minus fees) for a closed trade, else None."""
+
+    exit_d = _to_decimal(trade.get("exit_price"))
+    entry_d = _to_decimal(trade.get("entry_price"))
+    qty_d = _to_decimal(trade.get("quantity"))
+    if exit_d is None or entry_d is None or qty_d is None:
         return None
 
     side = trade.get("side")
-    if side in ("buy", "cover"):
+    if side == "buy":
         gross = (exit_d - entry_d) * qty_d
-    elif side in ("sell", "short"):
+    elif side in ("sell", "short", "cover"):
+        # `cover` is a short-close — same sign convention as `short`.
         gross = (entry_d - exit_d) * qty_d
     else:
         return None
 
-    fees = trade.get("fees") or Decimal("0")
-    try:
-        fees_d = Decimal(fees)
-    except (TypeError, ValueError):
-        fees_d = Decimal("0")
-
+    fees_d = _to_decimal(trade.get("fees")) or Decimal("0")
     return gross - fees_d

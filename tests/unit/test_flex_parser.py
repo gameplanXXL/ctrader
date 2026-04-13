@@ -2,12 +2,20 @@
 
 Pure parser tests — no DB. The integration test in
 `tests/integration/test_flex_import.py` covers the upsert path.
+
+Updated after Epic-2 code review (Tranche A patches H3-H5):
+- Sample XML now carries `openCloseIndicator` so we can verify the
+  BUY+O/SELL+C/SELL+O/BUY+C → buy/sell/short/cover mapping.
+- `accountTimezone="America/New_York"` is read from FlexStatement and
+  used to localize the per-trade datetimes before converting to UTC.
 """
 
 from __future__ import annotations
 
+from datetime import UTC
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from app.models.trade import AssetClass, TradeSide, TradeSource
 from app.services.ib_flex_import import (
@@ -26,18 +34,22 @@ SAMPLE_XML = (Path(__file__).resolve().parents[1] / "fixtures" / "sample_flex_qu
 # ---------------------------------------------------------------------------
 
 
-def test_parses_two_stocks_and_one_single_leg_option_from_sample() -> None:
-    """The sample fixture has 2 stocks + 1 single-leg option + 2 spread legs + 1 broken row.
+def test_parses_four_valid_trades_from_sample() -> None:
+    """The sample fixture has 4 valid trades + 2 spread legs + 1 broken row.
 
     Expected counts:
-    - 3 valid trades (2 STK + 1 single-leg OPT)
+    - 4 valid trades:
+        * 1000000001  AAPL BUY  (long open)
+        * 1000000001b AAPL SELL (long close)
+        * 1000000002  MSFT SHORT (short open via SELL+O)
+        * 2000000001  AAPL OPT BUY (single-leg)
     - 2 multi-leg legs skipped
     - 1 invalid (missing permID) skipped
     """
 
     trades, multi_leg, invalid = parse_flex_xml(SAMPLE_XML)
 
-    assert len(trades) == 3
+    assert len(trades) == 4
     assert multi_leg == 2
     assert invalid == 1
 
@@ -47,26 +59,36 @@ def test_imported_trades_have_expected_fields() -> None:
 
     by_perm = {t.perm_id: t for t in trades}
     assert "1000000001" in by_perm
+    assert "1000000001b" in by_perm
     assert "1000000002" in by_perm
     assert "2000000001" in by_perm
 
-    aapl = by_perm["1000000001"]
-    assert aapl.symbol == "AAPL"
-    assert aapl.asset_class is AssetClass.STOCK
-    assert aapl.side is TradeSide.BUY
-    assert aapl.quantity == Decimal("100")
-    assert aapl.entry_price == Decimal("150.00")
-    assert aapl.broker is TradeSource.IB
-    assert aapl.fees == Decimal("1.00")  # IB commission absolutized
+    aapl_open = by_perm["1000000001"]
+    assert aapl_open.symbol == "AAPL"
+    assert aapl_open.asset_class is AssetClass.STOCK
+    assert aapl_open.side is TradeSide.BUY
+    assert aapl_open.quantity == Decimal("100")
+    assert aapl_open.entry_price == Decimal("150.00")
+    assert aapl_open.exit_price is None  # open execution
+    assert aapl_open.closed_at is None
+    assert aapl_open.broker is TradeSource.IB
+    assert aapl_open.fees == Decimal("1.00")  # IB commission absolutized
+
+    aapl_close = by_perm["1000000001b"]
+    assert aapl_close.side is TradeSide.SELL  # SELL + C → sell (long close)
+    assert aapl_close.exit_price == Decimal("151.50")  # close has exit_price
+    assert aapl_close.closed_at is not None  # close has closed_at
 
     msft = by_perm["1000000002"]
     assert msft.symbol == "MSFT"
-    assert msft.side is TradeSide.SELL
+    # SELL + O → short, NOT plain sell (code-review fix H4)
+    assert msft.side is TradeSide.SHORT
     assert msft.entry_price == Decimal("380.50")
+    assert msft.closed_at is None  # open execution
 
     option = by_perm["2000000001"]
     assert option.asset_class is AssetClass.OPTION
-    assert option.side is TradeSide.BUY
+    assert option.side is TradeSide.BUY  # BUY + O → buy
     assert option.quantity == Decimal("2")
 
 
@@ -106,27 +128,46 @@ def test_parse_empty_response_returns_zero_trades() -> None:
     assert invalid == 0
 
 
+def test_account_timezone_is_respected() -> None:
+    """`accountTimezone` from FlexStatement determines the local TZ.
+
+    Code-review fix H5: the AAPL open at "20260410;093000" with
+    accountTimezone="America/New_York" must be converted from
+    09:30 NY → 13:30 UTC (April = EDT, UTC-4).
+    """
+
+    trades, _, _ = parse_flex_xml(SAMPLE_XML)
+    by_perm = {t.perm_id: t for t in trades}
+    aapl = by_perm["1000000001"]
+
+    assert aapl.opened_at.tzinfo is not None
+    assert aapl.opened_at == aapl.opened_at.astimezone(UTC)
+    # 09:30 EDT → 13:30 UTC
+    assert aapl.opened_at.hour == 13
+    assert aapl.opened_at.minute == 30
+
+
 # ---------------------------------------------------------------------------
 # Helpers — _parse_ib_datetime, _parse_decimal
 # ---------------------------------------------------------------------------
 
 
-def test_parse_ib_datetime_handles_semicolon_separator() -> None:
+def test_parse_ib_datetime_localizes_to_account_tz_then_utc() -> None:
+    """Without an explicit tz the function defaults to America/New_York."""
+
     parsed = _parse_ib_datetime("20260410;093000")
     assert parsed is not None
-    assert parsed.year == 2026
-    assert parsed.month == 4
-    assert parsed.day == 10
-    assert parsed.hour == 9
-    assert parsed.minute == 30
-    # UTC-aware
     assert parsed.tzinfo is not None
+    # 09:30 NY in April = 13:30 UTC (EDT)
+    assert parsed.hour == 13
+    assert parsed.minute == 30
 
 
-def test_parse_ib_datetime_handles_space_separator() -> None:
-    parsed = _parse_ib_datetime("20260410 094500")
+def test_parse_ib_datetime_explicit_tz() -> None:
+    parsed = _parse_ib_datetime("20260410 094500", tz=ZoneInfo("Europe/Berlin"))
     assert parsed is not None
-    assert parsed.hour == 9
+    # 09:45 Berlin in April = 07:45 UTC (CEST UTC+2)
+    assert parsed.hour == 7
     assert parsed.minute == 45
 
 

@@ -1,33 +1,52 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <FlexQueryResponse queryName="ctrader-test-export" type="AF">
   <FlexStatements count="1">
-    <FlexStatement accountId="U1234567" fromDate="20260301" toDate="20260413">
+    <FlexStatement
+        accountId="U1234567"
+        accountTimezone="America/New_York"
+        fromDate="20260301"
+        toDate="20260413">
       <Trades>
-        <!-- Plain stock trade -->
+        <!-- Stock long open (BUY + O → buy) -->
         <Trade
           tradeID="1001"
           permID="1000000001"
           symbol="AAPL"
           assetCategory="STK"
           buySell="BUY"
+          openCloseIndicator="O"
           quantity="100"
           tradePrice="150.00"
           ibCommission="-1.00"
           dateTime="20260410;093000"
         />
-        <!-- Stock sell -->
+        <!-- Stock long close (SELL + C → sell) -->
+        <Trade
+          tradeID="1001b"
+          permID="1000000001b"
+          symbol="AAPL"
+          assetCategory="STK"
+          buySell="SELL"
+          openCloseIndicator="C"
+          quantity="100"
+          tradePrice="151.50"
+          ibCommission="-1.00"
+          dateTime="20260410;103000"
+        />
+        <!-- Stock short open (SELL + O → short) -->
         <Trade
           tradeID="1002"
           permID="1000000002"
           symbol="MSFT"
           assetCategory="STK"
           buySell="SELL"
+          openCloseIndicator="O"
           quantity="50"
           tradePrice="380.50"
           ibCommission="-0.75"
           dateTime="20260410 094500"
         />
-        <!-- Single-leg option (call buy) -->
+        <!-- Single-leg option (call buy, open) -->
         <Trade
           tradeID="2001"
           permID="2000000001"
@@ -35,6 +54,7 @@
           underlyingSymbol="AAPL"
           assetCategory="OPT"
           buySell="BUY"
+          openCloseIndicator="O"
           quantity="2"
           tradePrice="3.50"
           ibCommission="-1.05"
@@ -49,6 +69,7 @@
           underlyingSymbol="AAPL"
           assetCategory="OPT"
           buySell="BUY"
+          openCloseIndicator="O"
           quantity="1"
           tradePrice="3.50"
           ibCommission="-0.65"
@@ -62,6 +83,7 @@
           underlyingSymbol="AAPL"
           assetCategory="OPT"
           buySell="SELL"
+          openCloseIndicator="O"
           quantity="1"
           tradePrice="1.50"
           ibCommission="-0.65"
@@ -74,6 +96,7 @@
           symbol="BROKE"
           assetCategory="STK"
           buySell="BUY"
+          openCloseIndicator="O"
           quantity="10"
           tradePrice="1.00"
           dateTime="20260412;110000"

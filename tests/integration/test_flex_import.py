@@ -105,18 +105,25 @@ async def test_unique_constraint_on_broker_perm_id(conn: asyncpg.Connection) -> 
 # ---------------------------------------------------------------------------
 
 
-async def test_import_inserts_three_trades_and_skips_spread_and_invalid(
+async def test_import_inserts_four_trades_and_skips_spread_and_invalid(
     conn: asyncpg.Connection,
 ) -> None:
+    """The updated sample fixture has 4 valid executions.
+
+    Each Flex `<Trade>` is one execution, so the AAPL open (BUY+O) and
+    AAPL close (SELL+C) are two separate rows — they share the stock
+    symbol but carry different perm_ids.
+    """
+
     result = await import_flex_xml(conn, SAMPLE_XML)
 
-    assert result.inserted == 3
+    assert result.inserted == 4
     assert result.skipped_multi_leg == 2
     assert result.skipped_invalid == 1
     assert result.skipped_duplicate == 0
 
     count = await conn.fetchval("SELECT COUNT(*) FROM trades")
-    assert count == 3
+    assert count == 4
 
 
 async def test_imported_stocks_and_options_have_expected_values(
@@ -125,15 +132,25 @@ async def test_imported_stocks_and_options_have_expected_values(
     await import_flex_xml(conn, SAMPLE_XML)
 
     rows = await conn.fetch(
-        "SELECT symbol, asset_class, side, quantity, fees FROM trades ORDER BY perm_id"
+        "SELECT perm_id, symbol, asset_class, side, quantity, fees FROM trades ORDER BY perm_id"
     )
-    by_perm = {row["symbol"]: row for row in rows}
+    by_perm = {row["perm_id"]: row for row in rows}
 
-    assert "AAPL" in by_perm
-    assert by_perm["AAPL"]["asset_class"] == "stock"
-    assert by_perm["AAPL"]["side"] == "buy"
-    assert by_perm["AAPL"]["quantity"] == 100
-    assert by_perm["AAPL"]["fees"] == 1.00
+    # AAPL stock long open — BUY + O → buy
+    assert "1000000001" in by_perm
+    assert by_perm["1000000001"]["symbol"] == "AAPL"
+    assert by_perm["1000000001"]["asset_class"] == "stock"
+    assert by_perm["1000000001"]["side"] == "buy"
+    assert by_perm["1000000001"]["quantity"] == 100
+    assert by_perm["1000000001"]["fees"] == 1.00
+
+    # AAPL stock long close — SELL + C → sell
+    assert "1000000001b" in by_perm
+    assert by_perm["1000000001b"]["side"] == "sell"
+
+    # MSFT stock short open — SELL + O → short (not plain sell)
+    assert "1000000002" in by_perm
+    assert by_perm["1000000002"]["side"] == "short"
 
 
 # ---------------------------------------------------------------------------
@@ -143,12 +160,12 @@ async def test_imported_stocks_and_options_have_expected_values(
 
 async def test_reimport_is_idempotent(conn: asyncpg.Connection) -> None:
     first = await import_flex_xml(conn, SAMPLE_XML)
-    assert first.inserted == 3
+    assert first.inserted == 4
     assert first.skipped_duplicate == 0
 
     second = await import_flex_xml(conn, SAMPLE_XML)
     assert second.inserted == 0
-    assert second.skipped_duplicate == 3
+    assert second.skipped_duplicate == 4
 
     count = await conn.fetchval("SELECT COUNT(*) FROM trades")
-    assert count == 3, "row count must not grow on re-import (NFR-R1)"
+    assert count == 4, "row count must not grow on re-import (NFR-R1)"

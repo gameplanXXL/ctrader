@@ -20,7 +20,13 @@ from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from app.filters.formatting import JINJA_FILTERS
-from app.services.trade_query import DEFAULT_PAGE_SIZE, list_trades
+from app.logging import get_logger
+from app.services.expectancy import compute_expectancy_at_entry
+from app.services.pnl import compute_pnl
+from app.services.r_multiple import compute_r_multiple
+from app.services.trade_query import DEFAULT_PAGE_SIZE, get_trade_detail, list_trades
+
+logger = get_logger(__name__)
 
 router = APIRouter()
 
@@ -55,28 +61,41 @@ async def root_redirect():
 async def journal_page(
     request: Request,
     page: int = Query(default=1, ge=1, description="1-indexed page number"),
+    expand: int | None = Query(
+        default=None,
+        description="Trade ID to render expanded inline (Story 2.4 AC #4 — bookmarkable)",
+    ),
 ):
     """Journal start page — paginated trade list + untagged counter.
 
-    Borrows a connection from the asyncpg pool that the lifespan owns.
-    Falls back to an empty `TradeListPage` if the pool isn't available
-    (e.g., during the smoke tests where conftest provides an
-    AsyncMock pool that doesn't support real queries).
+    If `?expand=<trade_id>` is present, the trade's drilldown context
+    is fetched and exposed to the template so the journal can pre-fill
+    the matching expansion-row at first render. Bookmarkable URL,
+    Story 2.4 AC #4 — code-review M11 fix.
     """
 
     db_pool = getattr(request.app.state, "db_pool", None)
     journal_page_data = None
+    expanded_trade = None
 
     if db_pool is not None and hasattr(db_pool, "acquire"):
         try:
             async with db_pool.acquire() as conn:
                 journal_page_data = await list_trades(conn, page=page)
-        except Exception:  # noqa: BLE001 — keep the page rendering
+                if expand is not None:
+                    expanded_trade = await get_trade_detail(conn, expand)
+        except Exception as exc:  # noqa: BLE001 — keep the page rendering
+            # Log loudly so DB issues don't disappear behind an empty
+            # journal — code-review M4 fix.
+            logger.warning(
+                "journal_page.db_error",
+                error=str(exc),
+                exception_type=type(exc).__name__,
+            )
             journal_page_data = None
+            expanded_trade = None
 
     if journal_page_data is None:
-        # Empty fallback — used by unit tests with the AsyncMock pool
-        # and by the smoke test where the table may be empty.
         from app.services.trade_query import TradeListPage
 
         journal_page_data = TradeListPage(
@@ -87,10 +106,24 @@ async def journal_page(
             per_page=DEFAULT_PAGE_SIZE,
         )
 
+    expansion_context = None
+    if expanded_trade is not None:
+        expansion_context = {
+            "trade": expanded_trade,
+            "computed_pnl": compute_pnl(expanded_trade),
+            "computed_r_multiple": compute_r_multiple(expanded_trade),
+            "computed_expectancy": compute_expectancy_at_entry(expanded_trade),
+        }
+
     return templates.TemplateResponse(
         request,
         "pages/journal.html",
-        {"active_route": "journal", "page": journal_page_data},
+        {
+            "active_route": "journal",
+            "page": journal_page_data,
+            "expand_id": expand,
+            "expansion": expansion_context,
+        },
     )
 
 

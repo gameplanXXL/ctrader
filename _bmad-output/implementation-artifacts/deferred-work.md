@@ -28,3 +28,20 @@ This file is append-only — never delete entries, only mark them done.
 - **D18** Empty `taxonomy.yaml` file produces "did not parse to a mapping" which is technically true but misleading ("parsed to None" would be more accurate). Distinguish empty-file from non-mapping in the error text. *Source: edge-case-hunter*
 - **D19** Debug route (`/debug/mcp-tools`) shutdown race partially mitigated by P18 (catches `RuntimeError`), but a request-in-flight during `aclose()` still sees inconsistent state. Single-User-Localhost edge case, accept for now. *Source: edge-case-hunter*
 - **D20** Conftest pool fixture uses bare `AsyncMock(name="asyncpg.Pool")` without `spec=asyncpg.Pool`. Future tests using `acquire_connection()` will get AsyncMock returns that silently look "successful" and may mask bugs. Add `spec=` when first such test lands. *Source: edge-case-hunter*
+
+---
+
+## Deferred from: code review of Epic 2 (Stories 2.1–2.4) — 2026-04-13
+
+- **D21** Round-trip trade aggregation. Every Flex `<Trade>` is an execution — open and close land in separate rows with different `perm_id`s. Matching them into round-trip trades (with realized P&L, MAE/MFE, true `entry/exit`) belongs in Epic 4 or 6. Until then the journal shows "executions as trades" which Chef explicitly accepted. *Source: acceptance-auditor*
+- **D22** Story 2.2 `execDetailsEvent` subscription + auto-reconnect descoped to Story 12.1 (scheduler framework). Delivered primitives: `upsert_trade()`, `reconcile_open_trades()`, `execution_to_trade()`. Story 12.1 wires the event handler, APScheduler job, and connection supervisor. *Source: chef-decision D-A (b)*
+- **D23** Journal list query has no `WHERE broker = …` filter yet — all trades share one list. Multi-broker filtering (IB vs cTrader vs …) lands when Epic 8 goes live. *Source: edge-case-hunter*
+- **D24** `pnl` column is persisted but never computed at write-time — `compute_pnl()` is called per-request in the drilldown. Fine for a single-user local app; revisit when strategy-aggregation queries hit latency. *Source: blind-hunter*
+- **D25** Journal pagination uses `OFFSET`. Keyset pagination (`WHERE opened_at < $1 ORDER BY opened_at DESC`) is the standard move at ~10k trades. Not needed yet (current count ≪ 1k). *Source: edge-case-hunter*
+- **D26** `get_trade_detail` returns a `dict`, not a validated Pydantic model. A schema mismatch (e.g., renamed column) would only surface in the template. Add a `TradeDetail` model when trade schema stabilizes. *Source: blind-hunter*
+- **D27** HTMX drilldown request has no debounce / loading indicator. Double-clicks issue duplicate requests. Add `hx-indicator` + `hx-trigger="click once"` when Chef complains. *Source: edge-case-hunter*
+- **D28** Inline `<script>` prefill block on the journal page uses `document.getElementById` — works fine but an extra MutationObserver on the row container would be cleaner if more expand-on-load features land. *Source: blind-hunter (D-B a patch)*
+- **D29** `_parse_ib_datetime` silently returns `None` for unknown formats. A future Flex schema change could drop every trade as "invalid" with nothing but a single log line. Add a metric `ib_flex.parse_fail_total` when observability matures (Epic 12). *Source: edge-case-hunter*
+- **D30** `format_pnl` catches `InvalidOperation` but not `ArithmeticError` — a `Decimal('Infinity')` slipping in would bubble. Tighten the except tuple when the formatter is shared across stories. *Source: blind-hunter*
+- **D31** `import_flex_xml` holds a single `conn.transaction()` around all inserts. On a 5k-trade import a single bad row rolls back the whole batch. Split into per-row savepoints when historical reimports grow. *Source: edge-case-hunter*
+- **D32** `TradeIn.trigger_spec` is typed `dict[str, Any] | None`. JSONB round-trip tests (insert then read) don't yet exist — we trust asyncpg's `::jsonb` cast. Add an integration test once Story 3.1 (tagging form) writes non-trivial specs. *Source: edge-case-hunter*

@@ -27,9 +27,11 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
+from typing import Any
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import asyncpg
 
@@ -85,50 +87,102 @@ def _parse_decimal(raw: str | None) -> Decimal | None:
         return None
 
 
-def _parse_ib_datetime(raw: str | None) -> datetime | None:
-    """Parse the IB Flex datetime format `YYYYMMDD;HHMMSS` (UTC).
+def _resolve_tz(tz_name: str | None) -> tzinfo:
+    """Resolve a Flex `accountTimezone` attribute (or settings fallback)
+    to a `tzinfo`. Falls back to `America/New_York` (IB account default)
+    if the name is missing or unrecognised.
 
-    Some Flex versions use a space separator instead of a semicolon
-    and/or omit the time component. We accept all observed shapes and
-    return UTC-aware datetimes.
+    Code-review fix H5: previously every Flex datetime was hard-tagged
+    as UTC even though IB ships datetimes in the account-configured
+    timezone, shifting historical trades by 4-5 hours and silently
+    breaking `opened_at DESC` ordering across DST.
+    """
+
+    if tz_name:
+        try:
+            return ZoneInfo(tz_name)
+        except (ZoneInfoNotFoundError, ValueError):
+            pass
+    try:
+        return ZoneInfo("America/New_York")
+    except ZoneInfoNotFoundError:  # pragma: no cover — minimal Linux missing tzdata
+        return UTC
+
+
+def _parse_ib_datetime(raw: str | None, tz: tzinfo | None = None) -> datetime | None:
+    """Parse an IB Flex datetime string and return a UTC-aware datetime.
+
+    Accepts the historical shapes IB has used over the years:
+    - `YYYYMMDD;HHMMSS` (current default)
+    - `YYYYMMDD HHMMSS` (space separator)
+    - `YYYYMMDD HH:MM:SS`
+    - `YYYY-MM-DD HH:MM:SS`
+    - `YYYYMMDD` (date only — assumed midnight in account TZ)
+
+    The parsed local datetime is localized using `tz` (defaults to
+    `America/New_York` when not provided), then converted to UTC for
+    storage. This matches Migration 002's `TIMESTAMPTZ` columns.
     """
 
     if raw is None or raw == "":
         return None
     text = raw.replace(";", " ").strip()
     candidates = ["%Y%m%d %H%M%S", "%Y%m%d %H:%M:%S", "%Y%m%d", "%Y-%m-%d %H:%M:%S"]
+
+    local_tz = tz or _resolve_tz(None)
     for fmt in candidates:
         try:
             parsed = datetime.strptime(text, fmt)  # noqa: DTZ007
-            return parsed.replace(tzinfo=UTC)
+            localized = parsed.replace(tzinfo=local_tz)
+            return localized.astimezone(UTC)
         except ValueError:
             continue
     return None
 
 
-def _map_side(buy_sell: str | None, quantity: Decimal | None) -> TradeSide | None:
-    """Translate IB's `buySell` attribute + signed quantity to our enum.
+def _map_side(buy_sell: str | None, open_close: str | None) -> TradeSide | None:
+    """Translate IB's `buySell` + `openCloseIndicator` to our enum.
 
-    IB sends `BUY` / `SELL` / `BUY-CLOSE` / `SELL-CLOSE`. We collapse
-    to four directions: BUY, SELL, SHORT, COVER. Negative quantity on
-    a `SELL` is a short open; positive quantity on a `BUY` after a
-    short is a cover. Without trade-state context we use the simple
-    rule: BUY → buy, SELL → sell. Open/Close suffixes and SHORT/COVER
-    inference happen in Story 2.2 (live sync) which has order context.
+    Code-review fix H4: previously this function only read `buySell`
+    and could never produce SHORT or COVER. IB Flex actually emits the
+    direction in two attributes:
+      - `buySell` ∈ {BUY, SELL}
+      - `openCloseIndicator` ∈ {O (open), C (close)}
+
+    Combined:
+      BUY  + O → buy   (long open)
+      SELL + C → sell  (long close)
+      SELL + O → short (short open)
+      BUY  + C → cover (short close)
+
+    If `openCloseIndicator` is missing (very old Flex schemas), we
+    default to OPEN — same conservative behavior as the previous
+    BUY/SELL-only mapping.
     """
 
     if buy_sell is None:
         return None
-    upper = buy_sell.upper().strip()
-    if upper.startswith("BUY"):
-        return TradeSide.BUY
-    if upper.startswith("SELL"):
-        return TradeSide.SELL
-    if upper.startswith("SHORT"):
+    direction = buy_sell.upper().strip()
+    state = (open_close or "O").upper().strip()
+
+    if direction.startswith("BUY"):
+        return TradeSide.COVER if state.startswith("C") else TradeSide.BUY
+    if direction.startswith("SELL"):
+        return TradeSide.SELL if state.startswith("C") else TradeSide.SHORT
+
+    # Some Flex variants use the explicit SHORT/COVER strings — keep
+    # the fallback for forward compatibility.
+    if direction.startswith("SHORT"):
         return TradeSide.SHORT
-    if upper.startswith("COVER"):
+    if direction.startswith("COVER"):
         return TradeSide.COVER
     return None
+
+
+def _is_close_side(side: TradeSide | None) -> bool:
+    """True if this side closes a position (sell-of-long, cover-of-short)."""
+
+    return side in (TradeSide.SELL, TradeSide.COVER)
 
 
 def _asset_class_from_category(category: str | None) -> AssetClass | None:
@@ -142,11 +196,18 @@ def _asset_class_from_category(category: str | None) -> AssetClass | None:
     return None
 
 
-def _trade_from_element(elem: ET.Element) -> TradeIn | None:
+def _trade_from_element(elem: ET.Element, tz: tzinfo | None = None) -> TradeIn | None:
     """Convert one `<Trade>` element to a `TradeIn`, or None on failure.
 
-    Returns None for any reason the trade should be skipped — caller
-    aggregates the skip-counts separately.
+    Code-review fix H3: an IB Flex `<Trade>` row is an individual
+    *execution*, not a round-trip. Every execution becomes its own
+    trades-table row, with `side` derived from `buySell` +
+    `openCloseIndicator`. For close-executions (`SELL` of a long,
+    `BUY` of a short → `cover`), we set both `entry_price` and
+    `exit_price` to the execution price, and `closed_at` to the
+    execution time — that lets Story 2.3's untagged-counter (which
+    keys on `closed_at IS NOT NULL`) work for Flex-imported data.
+    Round-trip aggregation lives in Epic 6 (Strategy-Management).
     """
 
     perm_id = _attr(elem, "permID") or _attr(elem, "permId")
@@ -168,16 +229,16 @@ def _trade_from_element(elem: ET.Element) -> TradeIn | None:
     # quantity and rely on `side` for direction.
     quantity = abs(quantity)
 
-    side = _map_side(_attr(elem, "buySell"), quantity)
+    side = _map_side(_attr(elem, "buySell"), _attr(elem, "openCloseIndicator"))
     if side is None:
         return None
 
-    entry_price = _parse_decimal(_attr(elem, "tradePrice"))
-    if entry_price is None:
+    price = _parse_decimal(_attr(elem, "tradePrice"))
+    if price is None:
         return None
 
-    opened_at = _parse_ib_datetime(_attr(elem, "dateTime"))
-    if opened_at is None:
+    when = _parse_ib_datetime(_attr(elem, "dateTime"), tz=tz)
+    if when is None:
         return None
 
     fees_raw = _parse_decimal(_attr(elem, "ibCommission"))
@@ -185,15 +246,23 @@ def _trade_from_element(elem: ET.Element) -> TradeIn | None:
     # Store it as a positive fee.
     fees = abs(fees_raw) if fees_raw is not None else Decimal("0")
 
+    is_close = _is_close_side(side)
+
+    # For close executions, both opened_at and closed_at point at the
+    # execution time and both prices point at the execution price —
+    # we don't have round-trip data without correlating to the matching
+    # open execution (Epic 6). For open executions, exit_price and
+    # closed_at stay None and the row is "live" until a matching close
+    # arrives.
     return TradeIn(
         symbol=symbol,
         asset_class=asset_class,
         side=side,
         quantity=quantity,
-        entry_price=entry_price,
-        exit_price=None,
-        opened_at=opened_at,
-        closed_at=None,
+        entry_price=price,
+        exit_price=price if is_close else None,
+        opened_at=when,
+        closed_at=when if is_close else None,
         pnl=None,
         fees=fees,
         broker=TradeSource.IB,
@@ -204,13 +273,23 @@ def _trade_from_element(elem: ET.Element) -> TradeIn | None:
 def _bucket_options(elements: Iterable[ET.Element]) -> dict[str, list[ET.Element]]:
     """Group option trades by (ibOrderID, underlying) so multi-leg
     spreads can be detected and skipped (FR2).
+
+    Code-review fix M1: when both order-ID attributes are missing,
+    we fall back to the trade's own `permID` so that two unrelated
+    single-leg options on the same underlying don't accidentally end
+    up bucketed together and get misclassified as a spread.
     """
 
     buckets: dict[str, list[ET.Element]] = defaultdict(list)
     for elem in elements:
         if _asset_class_from_category(_attr(elem, "assetCategory")) is not AssetClass.OPTION:
             continue
-        order_id = _attr(elem, "ibOrderID") or _attr(elem, "orderID") or ""
+        order_id = _attr(elem, "ibOrderID") or _attr(elem, "orderID")
+        if not order_id:
+            # Safe fallback: the trade's own permID is unique per
+            # execution, so bucketing by it guarantees `len(bucket) == 1`
+            # and no false multi-leg detection.
+            order_id = _attr(elem, "permID") or _attr(elem, "permId") or ""
         underlying = _attr(elem, "underlyingSymbol") or _attr(elem, "symbol") or ""
         key = f"{order_id}|{underlying}"
         buckets[key].append(elem)
@@ -227,9 +306,28 @@ def parse_flex_xml(xml_text: str) -> tuple[list[TradeIn], int, int]:
 
     Returns `(trades, skipped_multi_leg, skipped_invalid)`. Pure
     function — no DB access. Useful for unit tests.
+
+    Reads `accountTimezone` (or `flexStatementTimezone`) from the
+    `<FlexStatement>` element so per-trade datetimes are localized
+    correctly before being normalised to UTC. See `_parse_ib_datetime`
+    for the full convention (code-review fix H5).
     """
 
     root = ET.fromstring(xml_text)
+
+    # Locate the FlexStatement so we can read its account timezone
+    # attribute. Some legacy schemas put it on FlexQueryResponse —
+    # we accept either. Default is America/New_York, IB's account
+    # default.
+    statement = next(root.iter("FlexStatement"), None)
+    tz_name = None
+    if statement is not None:
+        tz_name = statement.attrib.get("accountTimezone") or statement.attrib.get(
+            "flexStatementTimezone"
+        )
+    if tz_name is None:
+        tz_name = root.attrib.get("accountTimezone") or root.attrib.get("flexStatementTimezone")
+    account_tz = _resolve_tz(tz_name)
 
     # Flex XML uses both `<Trades>` (legacy) and direct `<Trade>` rows
     # under `<FlexStatement>`. We accept either by scanning all <Trade>
@@ -260,7 +358,7 @@ def parse_flex_xml(xml_text: str) -> tuple[list[TradeIn], int, int]:
         perm_id = _attr(elem, "permID") or _attr(elem, "permId")
         if perm_id and perm_id in multi_leg_perm_ids:
             continue  # already counted as multi-leg skip
-        trade = _trade_from_element(elem)
+        trade = _trade_from_element(elem, tz=account_tz)
         if trade is None:
             skipped_invalid += 1
             logger.warning(
@@ -292,48 +390,112 @@ ON CONFLICT (broker, perm_id) DO NOTHING
 RETURNING id
 """
 
+# Live-sync UPSERT: when ib_async fires `execDetailsEvent` multiple
+# times for the same order (multi-fill), we MUST update the existing
+# row with the latest aggregate, not silently drop it.
+# Code-review fix H2.
+_UPSERT_SQL = """
+INSERT INTO trades (
+    symbol, asset_class, side, quantity, entry_price, exit_price,
+    opened_at, closed_at, pnl, fees, broker, perm_id, trigger_spec
+)
+VALUES (
+    $1, $2, $3, $4, $5, $6,
+    $7, $8, $9, $10, $11, $12, $13::jsonb
+)
+ON CONFLICT (broker, perm_id) DO UPDATE
+   SET quantity    = EXCLUDED.quantity,
+       entry_price = EXCLUDED.entry_price,
+       exit_price  = COALESCE(EXCLUDED.exit_price, trades.exit_price),
+       opened_at   = LEAST(EXCLUDED.opened_at, trades.opened_at),
+       closed_at   = COALESCE(EXCLUDED.closed_at, trades.closed_at),
+       fees        = EXCLUDED.fees,
+       updated_at  = NOW()
+RETURNING id, (xmax = 0) AS inserted
+"""
+
+
+def _trigger_spec_json(spec: Any) -> str | None:
+    """Serialize `trigger_spec` to JSON for asyncpg's JSONB binding.
+
+    Defensive — accepts dicts containing Decimal/datetime/etc by
+    falling back to `default=str`. Code-review fix M12.
+    """
+
+    if spec is None:
+        return None
+    import json as _json
+
+    return _json.dumps(spec, default=str, sort_keys=True)
+
 
 async def insert_trades(conn: asyncpg.Connection, trades: Iterable[TradeIn]) -> tuple[int, int]:
     """Insert trades, skipping duplicates via the UNIQUE constraint.
 
-    Returns `(inserted_count, duplicate_count)`. Each insert runs as a
-    separate statement so a duplicate doesn't roll back the whole batch.
+    Returns `(inserted_count, duplicate_count)`. Used by historical Flex
+    imports — duplicates are deliberately dropped, not updated, so a
+    re-import is purely additive.
 
-    `trigger_spec` is JSON-serialised here because asyncpg's default
-    codec for JSONB expects a string, not a Python dict. We could
-    register `set_type_codec("jsonb", ...)` per-connection, but doing
-    it here keeps the dependency injection-free.
+    For multi-fill live-sync events the right primitive is `upsert_trade`
+    below, which UPDATES on conflict so subsequent fills enrich the row.
     """
-
-    import json
 
     inserted = 0
     duplicates = 0
-    for trade in trades:
-        trigger_spec_json = (
-            json.dumps(trade.trigger_spec) if trade.trigger_spec is not None else None
-        )
-        row = await conn.fetchrow(
-            _INSERT_SQL,
-            trade.symbol,
-            trade.asset_class.value,
-            trade.side.value,
-            trade.quantity,
-            trade.entry_price,
-            trade.exit_price,
-            trade.opened_at,
-            trade.closed_at,
-            trade.pnl,
-            trade.fees,
-            trade.broker.value,
-            trade.perm_id,
-            trigger_spec_json,
-        )
-        if row is None:
-            duplicates += 1
-        else:
-            inserted += 1
+    async with conn.transaction():
+        for trade in trades:
+            row = await conn.fetchrow(
+                _INSERT_SQL,
+                trade.symbol,
+                trade.asset_class.value,
+                trade.side.value,
+                trade.quantity,
+                trade.entry_price,
+                trade.exit_price,
+                trade.opened_at,
+                trade.closed_at,
+                trade.pnl,
+                trade.fees,
+                trade.broker.value,
+                trade.perm_id,
+                _trigger_spec_json(trade.trigger_spec),
+            )
+            if row is None:
+                duplicates += 1
+            else:
+                inserted += 1
     return inserted, duplicates
+
+
+async def upsert_trade(conn: asyncpg.Connection, trade: TradeIn) -> tuple[int, bool]:
+    """Insert OR update a trade, keyed on `(broker, perm_id)`.
+
+    Returns `(trade_id, was_inserted)`. Used by the live-sync handler
+    (Story 2.2) so that subsequent fills of the same order ENRICH the
+    existing row instead of being silently dropped as duplicates
+    (code-review fix H2).
+    """
+
+    row = await conn.fetchrow(
+        _UPSERT_SQL,
+        trade.symbol,
+        trade.asset_class.value,
+        trade.side.value,
+        trade.quantity,
+        trade.entry_price,
+        trade.exit_price,
+        trade.opened_at,
+        trade.closed_at,
+        trade.pnl,
+        trade.fees,
+        trade.broker.value,
+        trade.perm_id,
+        _trigger_spec_json(trade.trigger_spec),
+    )
+    if row is None:
+        # Should not happen with ON CONFLICT DO UPDATE, but never crash.
+        return -1, False
+    return int(row["id"]), bool(row["inserted"])
 
 
 async def import_flex_xml(conn: asyncpg.Connection, xml_text: str) -> ImportResult:

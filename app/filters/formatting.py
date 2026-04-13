@@ -11,7 +11,7 @@ Jinja2 environment can register them once at app startup.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
@@ -75,13 +75,20 @@ def format_time(value: datetime | None) -> str:
     """Compact UTC timestamp for the trade row.
 
     Story 2.3 leaves the full ISO timestamp for the drilldown; the
-    list shows just `YYYY-MM-DD HH:MM` so each row stays narrow.
+    list shows just `YYYY-MM-DD HH:MM`.
+
+    Always renders in UTC. If the input is tz-aware in another
+    timezone (e.g., asyncpg returned a server-local TIMESTAMPTZ value),
+    we explicitly convert to UTC first so the column header label
+    "Time (UTC)" is honest. Naive datetimes are assumed UTC — that's
+    safe because every Migration-002 timestamp column is TIMESTAMPTZ
+    and every constructor in the codebase explicitly tags UTC.
     """
 
     if value is None:
         return EM_DASH
-    if value.tzinfo is None:
-        return value.strftime("%Y-%m-%d %H:%M")
+    if value.tzinfo is not None:
+        value = value.astimezone(UTC)
     return value.strftime("%Y-%m-%d %H:%M")
 
 

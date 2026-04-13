@@ -14,12 +14,20 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-13T21:00'
+last_updated: '2026-04-13T23:30'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
   (order_service.py statt quick_order.py, trades-Tabellen-Erweiterung statt ib_quick_orders,
   clients/ib.py statt services/ib_order.py, Kill-Switch-Exemption dokumentiert).
+
+  Epic 2 Code-Review + Tranche A Patches am 2026-04-13 abgeschlossen:
+  - 8 HIGH + 3 MEDIUM Patches appliziert (H1-H8, M1, M2, M6)
+  - Decision-Patches M11 (?expand= server-prefill) und M12 (trigger_spec JSON) appliziert
+  - Story 2.2 ACs #1+#3 demoted nach Story 12.1 (execDetailsEvent, Auto-Reconnect)
+  - Story 2.2 bleibt review (Rest-Descope), 2.1/2.3/2.4 done
+  - 166/166 Tests grün, ruff clean
+  - 12 deferred items dokumentiert (D21-D32) in deferred-work.md
 
 development_status:
   # =========================================================================
@@ -37,10 +45,10 @@ development_status:
   # EPIC 2: Trade-Journal & IB-Import
   # =========================================================================
   epic-2: in-progress
-  2-1-trades-datenmodell-flex-import: review
-  2-2-live-ib-sync-reconciliation: review
-  2-3-journal-startseite-trade-list: review
-  2-4-trade-drilldown-inline-expansion: review
+  2-1-trades-datenmodell-flex-import: done
+  2-2-live-ib-sync-reconciliation: review  # Rest-Descope nach Story 12.1
+  2-3-journal-startseite-trade-list: done
+  2-4-trade-drilldown-inline-expansion: done
 
   # =========================================================================
   # EPIC 3: Trade-Tagging & Trigger-Provenance

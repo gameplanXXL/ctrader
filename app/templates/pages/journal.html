@@ -39,7 +39,31 @@
         </tr>
       </thead>
       <tbody>
-        {% for trade in page.trades %}{{ trade_row(trade) }}{% endfor %}
+        {% for trade in page.trades %}
+          {{ trade_row(trade) }}
+          {# Server-side render of the expansion fragment when the
+             URL carries ?expand=<id> matching this row. Story 2.4
+             AC #4 — bookmarkable. The HTMX click-handlers continue
+             to work normally for ad-hoc expansions of other rows. #}
+          {% if expansion and expansion.trade and expansion.trade.id == trade.id %}
+            {% set _expansion_target = "expansion-" ~ trade.id %}
+            <template id="prefill-{{ trade.id }}">
+              {% with trade=expansion.trade,
+                      computed_pnl=expansion.computed_pnl,
+                      computed_r_multiple=expansion.computed_r_multiple,
+                      computed_expectancy=expansion.computed_expectancy %}
+                {% include "fragments/trade_detail.html" %}
+              {% endwith %}
+            </template>
+            <script>
+              (function () {
+                var slot = document.getElementById('{{ _expansion_target }}');
+                var prefill = document.getElementById('prefill-{{ trade.id }}');
+                if (slot && prefill) { slot.innerHTML = prefill.innerHTML; }
+              })();
+            </script>
+          {% endif %}
+        {% endfor %}
       </tbody>
     </table>
 

@@ -118,8 +118,9 @@ async def list_trades(
     """Paginated trade list, newest first.
 
     `page` is 1-indexed (matches the URL `?page=N` convention). Pages
-    out of range are clamped to a valid range so a stale bookmark
-    doesn't 500 the journal.
+    out of range are clamped to a valid range — both lower bound
+    (`< 1`) AND upper bound (`> total_pages`) — so a stale bookmark
+    always lands on a page that contains data.
     """
 
     if page < 1:
@@ -127,18 +128,24 @@ async def list_trades(
     if per_page < 1:
         per_page = DEFAULT_PAGE_SIZE
 
+    total_count = await conn.fetchval(_COUNT_SQL) or 0
+
+    # Clamp upper bound: `?page=9999` on a 3-page dataset → page 3.
+    max_page = max(1, (total_count + per_page - 1) // per_page) if total_count > 0 else 1
+    if page > max_page:
+        page = max_page
+
     offset = (page - 1) * per_page
 
     rows = await conn.fetch(_LIST_SQL, per_page, offset)
     trades = [dict(row) for row in rows]
 
-    total_count = await conn.fetchval(_COUNT_SQL)
     untagged = await conn.fetchval(_UNTAGGED_COUNT_SQL)
 
     return TradeListPage(
         trades=trades,
         untagged_count=untagged or 0,
-        total_count=total_count or 0,
+        total_count=total_count,
         page=page,
         per_page=per_page,
     )

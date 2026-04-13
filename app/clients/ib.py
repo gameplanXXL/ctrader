@@ -31,6 +31,22 @@ logger = get_logger(__name__)
 DEFAULT_CONNECT_TIMEOUT_SECONDS = 5.0
 
 
+def _running_under_uvloop() -> bool:
+    """True if the current asyncio event loop is uvloop.
+
+    Code-review fix H8: ib_async installs `nest_asyncio.apply()` on
+    import which is incompatible with uvloop. Detecting it lets us
+    refuse the connect attempt with a clear log line instead of
+    crashing the loop or silently breaking other coroutines.
+    """
+
+    try:
+        loop = asyncio.get_event_loop()
+    except RuntimeError:
+        return False
+    return "uvloop" in type(loop).__module__
+
+
 async def connect_ib(
     host: str,
     port: int,
@@ -43,7 +59,21 @@ async def connect_ib(
     Lazy-imports `ib_async` so the rest of the app can run even if the
     library is not installed yet (e.g., during integration tests that
     don't need a real IB).
+
+    Refuses to connect under uvloop because `ib_async` (via
+    `nest_asyncio`) is incompatible with it. To use live IB sync, run
+    uvicorn with `--loop asyncio`.
     """
+
+    if _running_under_uvloop():
+        logger.warning(
+            "ib.connect.uvloop_unsupported",
+            hint=(
+                "ib_async (via nest_asyncio) is incompatible with uvloop. "
+                "Run uvicorn with --loop asyncio to enable live IB sync."
+            ),
+        )
+        return None
 
     try:
         from ib_async import IB

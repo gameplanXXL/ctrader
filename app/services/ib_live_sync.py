@@ -19,7 +19,7 @@ import asyncpg
 
 from app.logging import get_logger
 from app.models.trade import AssetClass, TradeIn, TradeSide, TradeSource
-from app.services.ib_flex_import import insert_trades
+from app.services.ib_flex_import import upsert_trade
 
 logger = get_logger(__name__)
 
@@ -146,7 +146,13 @@ def execution_to_trade(trade_event: Any) -> TradeIn | None:
 async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
     """Process one ib_async Trade event → upsert into trades table.
 
-    Returns True if a new row was inserted, False on duplicate / skip.
+    Returns True if a new row was inserted, False if an existing row
+    was updated. Code-review fix H2: previously this used
+    `INSERT ... ON CONFLICT DO NOTHING`, which silently dropped every
+    subsequent fill of a multi-fill order — only the first fill
+    persisted. Now uses `upsert_trade` so additional fills enrich
+    the existing row (quantity, fees, weighted price are recomputed
+    from the full fills list before each call by `execution_to_trade`).
     """
 
     trade_in = execution_to_trade(trade_event)
@@ -158,20 +164,14 @@ async def handle_execution(conn: asyncpg.Connection, trade_event: Any) -> bool:
         )
         return False
 
-    inserted, duplicates = await insert_trades(conn, [trade_in])
-    if inserted:
-        logger.info(
-            "ib_live_sync.inserted",
-            symbol=trade_in.symbol,
-            side=trade_in.side.value,
-            quantity=str(trade_in.quantity),
-            perm_id=trade_in.perm_id,
-        )
-        return True
-
+    trade_id, inserted = await upsert_trade(conn, trade_in)
     logger.info(
-        "ib_live_sync.duplicate",
+        "ib_live_sync.upserted",
+        trade_id=trade_id,
         symbol=trade_in.symbol,
+        side=trade_in.side.value,
+        quantity=str(trade_in.quantity),
         perm_id=trade_in.perm_id,
+        action="inserted" if inserted else "updated",
     )
-    return False
+    return inserted
