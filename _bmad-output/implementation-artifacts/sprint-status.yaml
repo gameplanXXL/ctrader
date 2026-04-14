@@ -109,12 +109,12 @@ development_status:
   # =========================================================================
   # EPIC 7: Approval-Pipeline & Risk-Gate
   # =========================================================================
-  epic-7: in-progress
-  7-1-proposal-datenmodell-dashboard: review
-  7-2-risk-gate-integration: review
-  7-3-proposal-drilldown-viewport: review
-  7-4-approve-reject-revision: review
-  7-5-immutable-audit-log: review  # append-only trigger live-verified, UI view deferred
+  epic-7: done  # Tranche A applied 2026-04-14 (16 patches + H7 append-only integration test)
+  7-1-proposal-datenmodell-dashboard: done
+  7-2-risk-gate-integration: done
+  7-3-proposal-drilldown-viewport: done
+  7-4-approve-reject-revision: done
+  7-5-immutable-audit-log: done  # append-only trigger now backed by automated integration test (H7)
 
   # =========================================================================
   # EPIC 8: Bot-Execution (cTrader)

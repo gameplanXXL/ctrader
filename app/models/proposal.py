@@ -75,11 +75,26 @@ class Proposal(ProposalBase):
     created_at: datetime
     decided_at: datetime | None = None
     decided_by: str | None = None
+    # Code-review H5: denormalized for the approval-card rendering.
+    # Populated by `_LIST_SQL` (LEFT JOIN strategies); `_GET_SQL`
+    # leaves it None and the drilldown looks up the strategy via
+    # `strategy_id` if it ever needs the name.
+    strategy_name: str | None = None
 
     @property
     def is_red(self) -> bool:
-        """RED + UNREACHABLE both block the approve button (FR28)."""
+        """RED + UNREACHABLE block the approve button (FR28).
 
+        Code-review H3 / BH-40 / EC-34: a proposal whose risk_gate has
+        not yet run (`risk_gate_result is None`) must ALSO be treated
+        as blocked. The earlier implementation returned False here,
+        which let `can_be_approved` slip through for any proposal in
+        the brief window between creation and risk-gate completion.
+        Pessimistic default — fail closed.
+        """
+
+        if self.risk_gate_result is None:
+            return True
         return self.risk_gate_result in (RiskGateLevel.RED, RiskGateLevel.UNREACHABLE)
 
     @property

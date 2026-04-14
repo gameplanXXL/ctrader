@@ -33,6 +33,15 @@
                 #{{ p.id }} · {{ p.agent_id | title }} · {{ p.symbol }}
               </h3>
               <p class="proposal-card__meta">
+                {# Code-review H5 / Auditor 7.1 AC #2 — strategy name
+                   on the card per FR25 ("Strategie"). #}
+                <strong>Strategie:</strong>
+                {% if p.strategy_name %}
+                  {{ p.strategy_name }}
+                {% else %}
+                  <em class="proposal-card__no-strategy">— keine Strategie —</em>
+                {% endif %}
+                ·
                 {{ p.side.value | upper }} · {{ p.horizon.value }} · {{ p.asset_class | upper }}
                 · Size {{ p.position_size }} @ {{ p.entry_price }}
                 {% if p.stop_price %} · Stop {{ p.stop_price }}{% endif %}
@@ -40,15 +49,12 @@
               </p>
             </div>
             <div class="proposal-card__risk">
+              {# Code-review M1 / BH-14 / EC-8: pass green/yellow/red
+                 directly so screen readers announce "Risk Gate: GREEN"
+                 instead of the strategy-lifecycle "Status: Active". #}
               {% if p.risk_gate_result %}
                 {% set rg_label = p.risk_gate_result.value | upper %}
-                {% if p.risk_gate_result.value == "green" %}
-                  {{ status_badge("active", label="Risk Gate: " ~ rg_label) }}
-                {% elif p.risk_gate_result.value == "yellow" %}
-                  {{ status_badge("paused", label="Risk Gate: " ~ rg_label) }}
-                {% else %}
-                  {{ status_badge("retired", label="Risk Gate: " ~ rg_label) }}
-                {% endif %}
+                {{ status_badge(p.risk_gate_result.value, label="Risk Gate: " ~ rg_label) }}
               {% else %}
                 {{ status_badge("unknown", label="Risk Gate: pending") }}
               {% endif %}
@@ -131,22 +137,46 @@
 </style>
 
 <script>
-  /* Story 7.4 keyboard shortcuts: A=approve, R=reject. Active only
-     when a proposal drilldown is currently open. */
-  document.addEventListener("keydown", function (evt) {
-    if (evt.target && (evt.target.tagName === "INPUT" || evt.target.tagName === "TEXTAREA")) {
-      return;
-    }
-    var key = (evt.key || "").toLowerCase();
-    if (key !== "a" && key !== "r") return;
-    var openDrilldown = document.querySelector(".proposal-card__drilldown:not(:empty)");
-    if (!openDrilldown) return;
-    var selector = key === "a" ? '[data-shortcut="approve"]' : '[data-shortcut="reject"]';
-    var btn = openDrilldown.querySelector(selector);
-    if (btn) {
-      evt.preventDefault();
-      btn.click();
-    }
-  });
+  /* Story 7.4 keyboard shortcuts: A=approve, R=reject.
+     Code-review M5/M6 (BH-12, EC-10, EC-11):
+     - Ignore Ctrl/Meta/Alt so Ctrl+A (select-all), Cmd+R (reload)
+       don't trigger an approval/reject by accident.
+     - Skip <select> + contentEditable in addition to INPUT/TEXTAREA.
+     - Track the most-recently-opened drilldown so the shortcut
+       routes to the LAST clicked one when multiple are open. */
+  (function () {
+    var lastFocusedDrilldown = null;
+    document.body.addEventListener("click", function (evt) {
+      var btn = evt.target.closest && evt.target.closest(".proposal-card__expand-btn");
+      if (btn) {
+        var card = btn.closest(".proposal-card");
+        if (card) {
+          lastFocusedDrilldown = card.querySelector(".proposal-card__drilldown");
+        }
+      }
+    });
+    document.addEventListener("keydown", function (evt) {
+      if (evt.ctrlKey || evt.metaKey || evt.altKey) return;
+      var target = evt.target;
+      if (target && target.tagName) {
+        var tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+        if (target.isContentEditable) return;
+      }
+      var key = (evt.key || "").toLowerCase();
+      if (key !== "a" && key !== "r") return;
+      var drilldown = lastFocusedDrilldown;
+      if (!drilldown || !drilldown.firstChild) {
+        drilldown = document.querySelector(".proposal-card__drilldown:not(:empty)");
+      }
+      if (!drilldown || !drilldown.firstChild) return;
+      var selector = key === "a" ? '[data-shortcut="approve"]' : '[data-shortcut="reject"]';
+      var btn = drilldown.querySelector(selector);
+      if (btn) {
+        evt.preventDefault();
+        btn.click();
+      }
+    });
+  })();
 </script>
 {% endblock %}

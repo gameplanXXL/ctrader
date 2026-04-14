@@ -217,7 +217,7 @@ async def post_approve(request: Request, proposal_id: int):
 
     try:
         async with db_pool.acquire() as conn:
-            proposal = await approve_proposal(conn, proposal_id, decision, mcp_client)
+            await approve_proposal(conn, proposal_id, decision, mcp_client)
     except ProposalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
     except ProposalBlockedError as exc:
@@ -225,7 +225,7 @@ async def post_approve(request: Request, proposal_id: int):
         # at the backend, not just the frontend.
         raise HTTPException(status_code=403, detail=str(exc)) from None
 
-    return _decision_response(request, "approved", proposal_id, proposal)
+    return _decision_response("approved", proposal_id)
 
 
 @router.post("/proposals/{proposal_id}/reject", include_in_schema=False)
@@ -236,11 +236,11 @@ async def post_reject(request: Request, proposal_id: int):
     db_pool = await _require_pool(request)
     try:
         async with db_pool.acquire() as conn:
-            proposal = await reject_proposal(conn, proposal_id, decision)
+            await reject_proposal(conn, proposal_id, decision)
     except ProposalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
 
-    return _decision_response(request, "rejected", proposal_id, proposal)
+    return _decision_response("rejected", proposal_id)
 
 
 @router.post("/proposals/{proposal_id}/revision", include_in_schema=False)
@@ -251,18 +251,20 @@ async def post_revision(request: Request, proposal_id: int):
     db_pool = await _require_pool(request)
     try:
         async with db_pool.acquire() as conn:
-            proposal = await send_to_revision(conn, proposal_id, decision)
+            await send_to_revision(conn, proposal_id, decision)
     except ProposalNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from None
 
-    return _decision_response(request, "revision", proposal_id, proposal)
+    return _decision_response("revision", proposal_id)
 
 
-def _decision_response(request: Request, action: str, proposal_id: int, proposal) -> Response:
+def _decision_response(action: str, proposal_id: int) -> Response:
     """Common response shape for approve / reject / revision.
 
     Returns an empty body so HTMX `hx-swap="outerHTML"` removes the
     proposal card from the dashboard, plus an `HX-Trigger` toast.
+    Code-review M10 / BH-15: dropped the unused `request` and
+    `proposal` parameters.
     """
 
     label = {

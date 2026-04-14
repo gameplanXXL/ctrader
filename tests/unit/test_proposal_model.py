@@ -79,14 +79,17 @@ def test_already_decided_proposal_cannot_be_approved() -> None:
     assert p.can_be_approved is False
 
 
-def test_pending_with_no_risk_gate_yet_can_still_be_approved() -> None:
-    """Race condition: proposal listed before risk gate ran. The
-    backend service will refuse the approval, but the property
-    itself does not flag this case (NULL risk_gate_result)."""
+def test_pending_with_no_risk_gate_yet_blocks_approval() -> None:
+    """Code-review H3 / BH-40 / EC-34: a proposal whose risk gate
+    has not yet completed is blocked by `is_red` (pessimistic
+    fail-closed). Previously the property returned False here,
+    letting `can_be_approved` slip through during the brief window
+    between proposal create and risk-gate completion.
+    """
 
     p = _proposal(level=None)
-    assert p.is_red is False
-    assert p.can_be_approved is True
+    assert p.is_red is True
+    assert p.can_be_approved is False
 
 
 # ---------------------------------------------------------------------------

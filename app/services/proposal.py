@@ -1,8 +1,10 @@
 """Proposal CRUD + lifecycle service (Epic 7).
 
 Owns:
-- create_proposal() — Bot-side entry point (calls is_strategy_active
-  guard from Story 6.5)
+- create_proposal() — Bot-side entry point. Code-review M4 / BH-5:
+  the Story 6.5 strategy-active gate is now enforced inline via
+  `SELECT ... FOR UPDATE` inside the same transaction as the insert,
+  so the check and the insert are atomic (no TOCTOU race).
 - list_pending_proposals() — Approval dashboard query
 - get_proposal() — drilldown lookup
 - run_risk_gate_for_proposal() — async risk-gate evaluation + persist
@@ -37,7 +39,6 @@ from app.models.trade import TradeSide
 from app.services.audit import log_proposal_decision
 from app.services.fundamental import get_fundamental
 from app.services.risk_gate import run_risk_gate
-from app.services.strategy import is_strategy_active
 
 logger = get_logger(__name__)
 
@@ -86,14 +87,21 @@ RETURNING id, agent_id, strategy_id, symbol, asset_class, side::text,
           notes
 """
 
+# Code-review H5 / Auditor 7.1 AC #2: include the strategy name via
+# LEFT JOIN so the approval card can render "Strategie X" without a
+# second round-trip per row. LEFT JOIN keeps proposals with a NULL
+# strategy_id (agent-only suggestions) visible.
 _LIST_SQL = """
-SELECT id, agent_id, strategy_id, symbol, asset_class, side::text,
-       horizon::text, entry_price, stop_price, target_price, position_size,
-       risk_budget, trigger_spec, risk_gate_result::text,
-       risk_gate_response, status, created_at, decided_at, decided_by, notes
-  FROM proposals
- WHERE status = 'pending'
- ORDER BY created_at DESC, id DESC
+SELECT p.id, p.agent_id, p.strategy_id, s.name AS strategy_name,
+       p.symbol, p.asset_class, p.side::text,
+       p.horizon::text, p.entry_price, p.stop_price, p.target_price,
+       p.position_size, p.risk_budget, p.trigger_spec,
+       p.risk_gate_result::text, p.risk_gate_response, p.status,
+       p.created_at, p.decided_at, p.decided_by, p.notes
+  FROM proposals p
+  LEFT JOIN strategies s ON s.id = p.strategy_id
+ WHERE p.status = 'pending'
+ ORDER BY p.created_at DESC, p.id DESC
 """
 
 _GET_SQL = """
@@ -105,21 +113,47 @@ SELECT id, agent_id, strategy_id, symbol, asset_class, side::text,
  WHERE id = $1
 """
 
+# Code-review M3 / BH-1: a risk-gate refresh on an already-decided
+# proposal would silently overwrite the verdict. Guard with
+# `status='pending'` so only pending rows accept new gate results.
 _UPDATE_RISK_GATE_SQL = """
 UPDATE proposals
    SET risk_gate_result   = $1::risk_gate_result,
        risk_gate_response = $2
  WHERE id = $3
+   AND status = 'pending'
 """
 
+# Generic CAS for reject/revision: status must still be pending.
+# Code-review M3 / EC-5: do NOT touch `notes` here — the chef's
+# decision note belongs in `audit_log.notes`, never in
+# `proposals.notes` (which holds the agent's original rationale).
+# Previously `notes = COALESCE($3, notes)` overwrote the agent's
+# note with the chef's, losing the original reasoning forever.
 _UPDATE_STATUS_SQL = """
 UPDATE proposals
    SET status      = $1,
        decided_at  = NOW(),
-       decided_by  = $2,
-       notes       = COALESCE($3, notes)
- WHERE id = $4
+       decided_by  = 'chef'
+ WHERE id = $2
    AND status = 'pending'
+RETURNING id
+"""
+
+# Approve-specific CAS: extends the pending check with a hard
+# risk-gate guard so a concurrent risk-gate update from green→red
+# CANNOT race past the approval. This is the FR28 hard invariant
+# enforced at the SQL level — defense beyond the in-memory
+# `is_red` check (code-review H1 / BH-2 / EC-1).
+_APPROVE_STATUS_SQL = """
+UPDATE proposals
+   SET status      = 'approved',
+       decided_at  = NOW(),
+       decided_by  = 'chef'
+ WHERE id = $1
+   AND status = 'pending'
+   AND risk_gate_result IS NOT NULL
+   AND risk_gate_result != 'red'
 RETURNING id
 """
 
@@ -147,6 +181,14 @@ def _row_to_proposal(row: asyncpg.Record) -> Proposal:
     risk_gate_raw = row["risk_gate_result"]
     risk_gate_level = RiskGateLevel(risk_gate_raw) if risk_gate_raw is not None else None
 
+    # `strategy_name` is only present in `_LIST_SQL` (LEFT JOIN). For
+    # `_GET_SQL` and `_INSERT_SQL` returns the column doesn't exist
+    # → KeyError, so probe defensively.
+    try:
+        strategy_name = row["strategy_name"]
+    except (KeyError, IndexError):
+        strategy_name = None
+
     return Proposal(
         id=int(row["id"]),
         agent_id=str(row["agent_id"]),
@@ -170,6 +212,7 @@ def _row_to_proposal(row: asyncpg.Record) -> Proposal:
         decided_at=row["decided_at"],
         decided_by=row["decided_by"],
         notes=row["notes"],
+        strategy_name=strategy_name,
     )
 
 
@@ -182,15 +225,29 @@ async def create_proposal(conn: asyncpg.Connection, payload: ProposalCreate) -> 
     """Insert a new proposal. Story 6.5 gate: target strategy must be
     active. Bot-side callers should run the risk gate immediately
     after via `run_risk_gate_for_proposal`.
+
+    Code-review M4 / BH-15 / EC-15: wrap the active-strategy check
+    and the INSERT in the same transaction with a `SELECT ... FOR
+    UPDATE` row-lock so a concurrent `update_status(paused)` cannot
+    race past the check before the insert lands.
     """
 
     if payload.strategy_id is not None:
-        active = await is_strategy_active(conn, payload.strategy_id)
-        if not active:
-            raise ProposalStrategyInactiveError(
-                f"strategy {payload.strategy_id} is not active — proposal blocked"
+        async with conn.transaction():
+            status_row = await conn.fetchval(
+                "SELECT status::text FROM strategies WHERE id = $1 FOR UPDATE",
+                payload.strategy_id,
             )
+            if status_row != "active":
+                raise ProposalStrategyInactiveError(
+                    f"strategy {payload.strategy_id} is not active — proposal blocked"
+                )
+            return await _do_insert_proposal(conn, payload)
 
+    return await _do_insert_proposal(conn, payload)
+
+
+async def _do_insert_proposal(conn: asyncpg.Connection, payload: ProposalCreate) -> Proposal:
     row = await conn.fetchrow(
         _INSERT_SQL,
         payload.agent_id,
@@ -272,9 +329,13 @@ async def approve_proposal(
 ) -> Proposal:
     """Approve a pending proposal.
 
-    Story 7.4 + FR28 hard invariant: RED or UNREACHABLE risk gate
-    blocks the approval at the service layer. Frontend disables the
-    button, backend rejects the POST — defense in depth.
+    Story 7.4 + FR28 hard invariant — defense in depth across layers:
+    1. Frontend disables the button when `proposal.is_red`
+    2. Service-layer pre-check raises `ProposalBlockedError` (this fn)
+    3. Atomic SQL CAS via `_APPROVE_STATUS_SQL` requires
+       `risk_gate_result IS NOT NULL AND risk_gate_result != 'red'`
+       inside the same UPDATE — closes the TOCTOU race that the
+       in-memory pre-check alone can't (code-review H1 / BH-2 / EC-1).
     """
 
     proposal = await get_proposal(conn, proposal_id)
@@ -286,7 +347,8 @@ async def approve_proposal(
         )
     if proposal.is_red:
         raise ProposalBlockedError(
-            f"proposal {proposal_id} blocked by risk gate ({proposal.risk_gate_result})"
+            f"proposal {proposal_id} blocked by risk gate "
+            f"({proposal.risk_gate_result.value if proposal.risk_gate_result else 'pending'})"
         )
 
     risk_budget = decision.risk_budget if decision.risk_budget is not None else proposal.risk_budget
@@ -302,12 +364,24 @@ async def approve_proposal(
         logger.warning("approve.fundamental_fetch_failed", error=str(exc))
 
     async with conn.transaction():
-        updated = await conn.fetchval(
-            _UPDATE_STATUS_SQL, "approved", "chef", decision.notes, proposal_id
-        )
+        # Atomic CAS — also re-checks risk_gate_result inside the
+        # transaction to close the TOCTOU window between the in-memory
+        # is_red check and this UPDATE.
+        updated = await conn.fetchval(_APPROVE_STATUS_SQL, proposal_id)
         if updated is None:
+            # Either the row is no longer pending, or the risk gate
+            # flipped to red between our read and now. Re-fetch to
+            # report the actual state.
+            actual = await get_proposal(conn, proposal_id)
+            if actual is None:
+                raise ProposalNotFoundError(f"proposal {proposal_id} disappeared")
+            if actual.is_red:
+                raise ProposalBlockedError(
+                    f"proposal {proposal_id} blocked by risk gate "
+                    f"({actual.risk_gate_result.value if actual.risk_gate_result else 'pending'})"
+                )
             raise ProposalNotFoundError(
-                f"proposal {proposal_id} could not be updated (concurrent decision?)"
+                f"proposal {proposal_id} status is {actual.status.value}, no longer pending"
             )
         await log_proposal_decision(
             conn,
@@ -333,14 +407,25 @@ async def reject_proposal(
     proposal_id: int,
     decision: ProposalDecision,
 ) -> Proposal:
-    """Reject a pending proposal."""
+    """Reject a pending proposal.
+
+    Code-review H2 / BH-5 / EC-2: must check the CAS return value.
+    Previously this function silently swallowed concurrent decisions,
+    writing a `proposal_rejected` audit row even though the actual
+    proposal row was untouched (because a parallel approve had
+    already flipped it).
+    """
 
     proposal = await get_proposal(conn, proposal_id)
     if proposal is None or proposal.status != ProposalStatus.PENDING:
         raise ProposalNotFoundError(f"proposal {proposal_id} not pending")
 
     async with conn.transaction():
-        await conn.fetchval(_UPDATE_STATUS_SQL, "rejected", "chef", decision.notes, proposal_id)
+        updated = await conn.fetchval(_UPDATE_STATUS_SQL, "rejected", proposal_id)
+        if updated is None:
+            raise ProposalNotFoundError(
+                f"proposal {proposal_id} could not be rejected (concurrent decision?)"
+            )
         await log_proposal_decision(
             conn,
             event_type="proposal_rejected",
@@ -357,14 +442,21 @@ async def send_to_revision(
     proposal_id: int,
     decision: ProposalDecision,
 ) -> Proposal:
-    """Send a proposal back to the agent for revision."""
+    """Send a proposal back to the agent for revision.
+
+    Code-review H2 / BH-5 / EC-2: same CAS-failure check as reject.
+    """
 
     proposal = await get_proposal(conn, proposal_id)
     if proposal is None or proposal.status != ProposalStatus.PENDING:
         raise ProposalNotFoundError(f"proposal {proposal_id} not pending")
 
     async with conn.transaction():
-        await conn.fetchval(_UPDATE_STATUS_SQL, "revision", "chef", decision.notes, proposal_id)
+        updated = await conn.fetchval(_UPDATE_STATUS_SQL, "revision", proposal_id)
+        if updated is None:
+            raise ProposalNotFoundError(
+                f"proposal {proposal_id} could not be sent to revision (concurrent decision?)"
+            )
         await log_proposal_decision(
             conn,
             event_type="proposal_revision",

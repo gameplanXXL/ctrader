@@ -246,3 +246,17 @@ This file is append-only — never delete entries, only mark them done.
 - **D170** `is_strategy_active` has no unit test backed by a real DB cycle. *Source: EC-47, EC-50*
 - **D171** No test exercising the empty-state path of `strategies.html`. *Source: EC-48*
 - **D172** No test for duplicate-name 409 / invalid-status 422 / missing-field 422 unhappy paths. *Source: EC-49*
+
+## Epic 7 — Approval-Pipeline & Risk-Gate (deferred LOW findings)
+
+### Tests
+- **D173** No integration test for the full `/proposals/{id}/approve` HTTP flow against a real Postgres container (FR28 is only unit-tested on `can_be_approved`, not end-to-end through the router). *Source: Auditor 7.4 / EC-51*
+- **D174** No concurrent-approve TOCTOU test — would need two simultaneous asyncpg connections racing the CAS UPDATE. Worth adding once the testcontainer harness supports parallel fixtures. *Source: BH-41*
+- **D175** No integration test for `list_pending_proposals` verifying the strategy LEFT JOIN actually returns `strategy_name` correctly (including the no-strategy case). *Source: Auditor 7.1 / EC-52*
+- **D176** No test for `proposal_drilldown` fragment rendering (3-column viewport, Risk-Gate RED branch, Yellow branch, UNREACHABLE branch). *Source: Auditor 7.3 / EC-53*
+- **D177** Migration 009 CHECK constraints are not covered by an integration test probing a bad `event_type` or negative `risk_budget` insert. *Source: BH-42*
+
+### UI / observability
+- **D178** Toast container in `base.html` has no `aria-live="polite"` region, so screen readers miss the approval-success toast. *Source: EC-54*
+- **D179** Keyboard-shortcut handler in `approvals.html` doesn't track `Shift` modifier explicitly — `Shift+A` still triggers approve, which is harmless today but surprising. *Source: BH-43*
+- **D180** `approve_proposal` / `reject_proposal` / `send_to_revision` do not emit a structlog event with proposal_id + action + actor for observability (post-refactor). Story 12.2 audit-log viewer will want this. *Source: EC-55*

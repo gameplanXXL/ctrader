@@ -102,9 +102,29 @@
         <input type="checkbox" name="overrode_fundamental">
         <span>Override Fundamental</span>
       </label>
-      <input type="hidden" name="notes" value="">
+      {# Code-review H6 / Auditor 7.4 AC #3 / EC-9: visible textarea
+         so Chef can capture the reasoning for approve/reject/
+         revision per FR30 + UX-DR64 + UX-DR65. The decision endpoints
+         all read `notes` from the form. #}
+      <label class="proposal-viewport__notes-field">
+        <span class="form-label">Notiz (optional)</span>
+        <textarea
+          name="notes"
+          rows="2"
+          maxlength="2000"
+          placeholder="Begründung für Approve / Reject / Revision …"
+          class="proposal-viewport__textarea"
+        ></textarea>
+      </label>
 
       {% if proposal.is_red %}
+        {# Code-review M2 / BH-9 / EC-7: probe the JSONB level field
+           rather than `risk_gate_result` to detect UNREACHABLE.
+           After persist `risk_gate_result` is collapsed to 'red'
+           (the PG enum doesn't carry 'unreachable'), so the original
+           else-branch was dead code. The original level lives in
+           the JSONB response. #}
+        {% set rg_level = proposal.risk_gate_response.get("level") if proposal.risk_gate_response else None %}
         <button
           type="button"
           class="proposal-viewport__btn proposal-viewport__btn--blocked"
@@ -112,12 +132,25 @@
           aria-describedby="rg-block-reason-{{ proposal.id }}"
         >Approve <kbd>A</kbd></button>
         <p id="rg-block-reason-{{ proposal.id }}" class="proposal-viewport__block-reason">
-          {% if proposal.risk_gate_result.value == "red" %}
+          {% if rg_level == "unreachable" %}
+            Risk-Gate unreachable — Approval gesperrt (MCP-Outage)
+          {% elif proposal.risk_gate_result is none %}
+            Risk-Gate ausstehend — Approval gesperrt
+          {% else %}
             Risk-Gate blockiert
             ({{ (proposal.risk_gate_response.get("flags") if proposal.risk_gate_response else []) | join(", ") or "RED" }})
-          {% else %}
-            Risk-Gate unreachable — Approval gesperrt
           {% endif %}
+        </p>
+      {% elif proposal.is_yellow %}
+        {# Code-review M9 / Auditor: visual warning for YELLOW state. #}
+        <button
+          type="submit"
+          class="proposal-viewport__btn proposal-viewport__btn--approve proposal-viewport__btn--warn"
+          data-shortcut="approve"
+          aria-describedby="rg-warn-reason-{{ proposal.id }}"
+        >⚠ Approve <kbd>A</kbd></button>
+        <p id="rg-warn-reason-{{ proposal.id }}" class="proposal-viewport__warn-reason">
+          Risk-Gate WARNUNG ({{ (proposal.risk_gate_response.get("flags") if proposal.risk_gate_response else []) | join(", ") }})
         </p>
       {% else %}
         <button
@@ -127,11 +160,16 @@
         >Approve <kbd>A</kbd></button>
       {% endif %}
 
+      {# Code-review H6 follow-up: hx-include="closest form" so the
+         notes textarea contents reach the reject/revision endpoints
+         even though these are <button type="button"> outside the
+         form's default submit flow. #}
       <button
         type="button"
         class="proposal-viewport__btn proposal-viewport__btn--reject"
         data-shortcut="reject"
         hx-post="/proposals/{{ proposal.id }}/reject"
+        hx-include="closest form"
         hx-target="#proposal-card-{{ proposal.id }}"
         hx-swap="outerHTML"
       >Reject <kbd>R</kbd></button>
@@ -140,6 +178,7 @@
         type="button"
         class="proposal-viewport__btn proposal-viewport__btn--revision"
         hx-post="/proposals/{{ proposal.id }}/revision"
+        hx-include="closest form"
         hx-target="#proposal-card-{{ proposal.id }}"
         hx-swap="outerHTML"
       >Revision</button>
@@ -308,6 +347,33 @@
     color: var(--color-loss, #f85149);
     font-size: var(--font-size-label);
     margin: 0;
+  }
+  .proposal-viewport__btn--warn {
+    box-shadow: 0 0 0 2px var(--status-yellow, #f59e0b);
+  }
+  .proposal-viewport__warn-reason {
+    color: var(--status-yellow, #f59e0b);
+    font-size: var(--font-size-label);
+    margin: 0;
+  }
+  .proposal-viewport__notes-field {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    flex: 1 1 200px;
+  }
+  .proposal-viewport__textarea {
+    background: var(--bg-void);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-1) var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-small);
+    resize: vertical;
+  }
+  .proposal-viewport__textarea:focus {
+    outline: none;
+    border-color: var(--accent);
   }
 </style>
 {% endmacro %}
