@@ -260,3 +260,27 @@ This file is append-only — never delete entries, only mark them done.
 - **D178** Toast container in `base.html` has no `aria-live="polite"` region, so screen readers miss the approval-success toast. *Source: EC-54*
 - **D179** Keyboard-shortcut handler in `approvals.html` doesn't track `Shift` modifier explicitly — `Shift+A` still triggers approve, which is harmless today but surprising. *Source: BH-43*
 - **D180** `approve_proposal` / `reject_proposal` / `send_to_revision` do not emit a structlog event with proposal_id + action + actor for observability (post-refactor). Story 12.2 audit-log viewer will want this. *Source: EC-55*
+
+## Epic 8 — Bot-Execution cTrader (deferred LOW findings)
+
+### Stub / adapter
+- **D181** Real OpenApiPy adapter behind the `CTraderClient` protocol — deferred to the CLAUDE.md 1-day spike. `StubCTraderClient` stays as the default development + test double until that spike lands. *Source: Auditor 8.1 AC#1*
+- **D182** Partial-fill accumulation semantics not verified against real cTrader event ordering (PARTIAL → PARTIAL → FILLED) — current implementation only inserts a trade row on `status=='filled'`. Pattern is a gamble on a specific event semantic. Needs a decision from Chef once the real adapter lands (discard partials, or accumulate via VWAP like `ib_live_sync.upsert_trade`). *Source: EC-4*
+- **D183** Stub `aclose` uses `contextlib.suppress(asyncio.CancelledError, Exception)` which swallows programming errors (AttributeError, NameError) silently during teardown. Lower to CancelledError-only and log the rest. *Source: BH-8, BH-9*
+- **D184** Stub `_emit_fill` uses `request.limit_price or Decimal("0")` — a MARKET order would produce `filled_price=0`, passing the `CHECK (entry_price >= 0)` constraint but misleading. Unreachable today (`_proposal_to_request` always emits LIMIT) but fragile. *Source: BH-18, EC-24*
+
+### Models / queries
+- **D185** `_GET_SQL` in `app/services/proposal.py` does not SELECT the new `client_order_id`, `execution_status`, `execution_updated_at`, `execution_details` columns. The Story-7.3 drilldown cannot show "order placed / filling / filled" status on an approved-executing proposal. *Source: EC-8*
+- **D186** `Trade` Pydantic model (`app/models/trade.py`) still lacks `strategy_id` and `agent_id` attributes — any future code that hydrates trade rows into typed `Trade` objects will crash on the extra columns. `trade_query._row_to_dict` returns raw dicts for now. *Source: EC-10*
+- **D187** Aggregation / strategy-metrics queries don't filter by `agent_id` — for a strategy wired to both a bot AND manual IB tagging, performance metrics mix both execution paths into one number. Phase-2 analytics. *Source: EC-18*
+- **D188** The horizon asymmetry (`proposals.horizon` is a typed column, `trades.horizon` lives only in `trigger_spec->>'horizon'`) remains. Bot pipeline now enriches the JSONB (code-review H6) but a first-class `trades.horizon` column would remove the GIN-index lookup. *Source: EC-19*
+
+### Observability / ergonomics
+- **D189** `bot_execution.trigger.failed` audit rows currently use the `proposal_revision` event_type because Migration 009's CHECK constraint doesn't include a dedicated `bot_execution_failed` value. Chef can still filter via `notes LIKE 'bot_execution_failed:%'` but a new event_type would be cleaner — requires Migration 012 that adds the value to the constraint. *Source: EC-12 follow-up*
+- **D190** No shutdown-ordering guarantee that `ctrader_client.aclose()` drains all pending `handle_execution_event` handlers before `db_pool.close()` runs. OK with the stub (which cancels its emit tasks cleanly), but when the real adapter lands a `_draining: asyncio.Event` in the handler wrapper will be needed. *Source: EC-13*
+- **D191** `build_ctrader_client` does not refuse-to-start in `environment='production'` when credentials are configured AND the stub would still be used — a silent "live-looking config, stub execution" mode is possible. Add a hard-fail-or-explicit-override gate before the real adapter lands. *Source: EC-17 follow-up*
+
+### Test coverage
+- **D192** No router-integration test for `post_approve` that verifies `spawn_bot_execution` is called and the returned task observes `_background_tasks` set registration. `tests/unit/test_bot_execution.py::test_spawn_bot_execution_tracks_task_in_background_set` covers the service-layer contract only. *Source: EC-7*
+- **D193** No concurrent-approve TOCTOU test for the `client_order_id` race — would need two simultaneous asyncpg connections racing the `UPDATE ... WHERE client_order_id IS NULL`. Covered by the service-layer none-guard test but not by a real-DB race. *Source: BH-14*
+- **D194** No integration test exercising the Migration 011 `proposals_client_order_id_key` UNIQUE constraint — would prove that a buggy service layer bypassing `_UPDATE_CLIENT_ORDER_ID_SQL` still can't produce a duplicate. *Source: EC-25*

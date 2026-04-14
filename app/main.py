@@ -128,16 +128,30 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # client so FILLED events land in `trades`. Handler uses the
         # pooled connection; errors inside the handler are swallowed
         # by bot_execution itself and logged to structlog.
-        if app.state.ctrader_client is not None:
-            db_pool_for_events = app.state.db_pool
+        #
+        # Code-review H8 / EC-6: handler receives db_pool + mcp_client
+        # so `handle_execution_event` can fire a
+        # `capture_fundamental_snapshot` task on every new trade row,
+        # matching `ib_live_sync.upsert_trade`.
+        #
+        # Code-review H4 / BH-5: `build_ctrader_client` now always
+        # returns a concrete client (stub or real), so the previous
+        # `is not None` guard here was dead code.
+        db_pool_for_events = app.state.db_pool
+        mcp_client_for_events = app.state.mcp_client
 
-            async def _on_execution_event(event) -> None:
-                if db_pool_for_events is None:
-                    return
-                async with db_pool_for_events.acquire() as event_conn:
-                    await handle_execution_event(event_conn, event)
+        async def _on_execution_event(event) -> None:
+            if db_pool_for_events is None:
+                return
+            async with db_pool_for_events.acquire() as event_conn:
+                await handle_execution_event(
+                    event_conn,
+                    event,
+                    db_pool=db_pool_for_events,
+                    mcp_client=mcp_client_for_events,
+                )
 
-            await app.state.ctrader_client.subscribe_execution_events(_on_execution_event)
+        await app.state.ctrader_client.subscribe_execution_events(_on_execution_event)
 
         yield
     finally:

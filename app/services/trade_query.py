@@ -73,7 +73,9 @@ SELECT
     fees,
     broker,
     perm_id,
-    trigger_spec
+    trigger_spec,
+    agent_id,
+    strategy_id
   FROM trades
  WHERE {where_sql}
  ORDER BY opened_at DESC, id DESC
@@ -110,6 +112,8 @@ SELECT
     broker,
     perm_id,
     trigger_spec,
+    agent_id,
+    strategy_id,
     created_at,
     updated_at
   FROM trades

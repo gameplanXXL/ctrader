@@ -9,7 +9,6 @@ crash on `TemplateResponse` resolution under the future-annotations
 stringization rule.
 """
 
-import asyncio
 import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -26,7 +25,7 @@ from app.models.proposal import (
     ProposalCreate,
     ProposalDecision,
 )
-from app.services.bot_execution import trigger_bot_execution
+from app.services.bot_execution import spawn_bot_execution
 from app.services.fundamental import get_fundamental
 from app.services.mcp_health import get_all_agents
 from app.services.proposal import (
@@ -229,9 +228,12 @@ async def post_approve(request: Request, proposal_id: int):
         raise HTTPException(status_code=403, detail=str(exc)) from None
 
     # Story 8.1: fire-and-forget bot execution after successful approve.
-    # Never blocks the HTTP response; errors inside `trigger_bot_execution`
-    # are swallowed and logged by bot_execution itself.
-    asyncio.create_task(trigger_bot_execution(db_pool, ctrader_client, proposal_id))
+    # Code-review H1 / BH-2 / EC-1: `spawn_bot_execution` registers the
+    # task in a module-level set so the event loop can't garbage-collect
+    # it mid-run. Never blocks the HTTP response; errors inside
+    # `trigger_bot_execution` are swallowed and logged + audit-logged by
+    # bot_execution itself.
+    spawn_bot_execution(db_pool, ctrader_client, mcp_client, proposal_id)
 
     return _decision_response("approved", proposal_id)
 

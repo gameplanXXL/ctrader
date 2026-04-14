@@ -25,7 +25,16 @@
   <td class="trade-row__entry tabular">{{ trade.entry_price | format_price }}</td>
   <td class="trade-row__exit tabular">{{ trade.exit_price | format_price }}</td>
   <td class="trade-row__pnl tabular {{ trade.pnl | pnl_class }}">{{ trade.pnl | format_pnl }}</td>
-  <td class="trade-row__broker">{{ trade.broker | upper }}</td>
+  <td class="trade-row__broker">
+    {{ trade.broker | upper }}
+    {# Story 8.2 AC #3 / Code-review H10: bot trades get a clearly
+       visible "🤖" tag so Chef can distinguish them at a glance. The
+       agent_id flows from proposals.agent_id onto trades.agent_id at
+       FILLED-event time (app/services/bot_execution.py). #}
+    {% if trade.agent_id %}
+      <span class="bot-badge" title="Bot-generated trade ({{ trade.agent_id }})">🤖 {{ trade.agent_id }}</span>
+    {% endif %}
+  </td>
   <td class="trade-row__status">
     {% if trade.trigger_spec is none and trade.broker == 'ib' and trade.closed_at is not none %}
       <span class="status-pill status-pill--untagged">untagged</span>

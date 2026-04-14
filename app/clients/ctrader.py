@@ -246,24 +246,37 @@ def build_ctrader_client(
     client_id: str | None,
     client_secret: str | None,
     account_id: str | None,
-) -> CTraderClient | None:
-    """Factory — returns the stub in dev, real adapter when wired.
+) -> CTraderClient:
+    """Factory — currently always returns `StubCTraderClient`.
 
-    Currently ALWAYS returns the stub. The real OpenApiPy-backed client
-    lands after the 1-day spike per CLAUDE.md. The function-shape is
-    already here so the lifespan wiring doesn't have to change later.
+    Code-review H4 / BH-5 / BH-6: the previous version declared a
+    `CTraderClient | None` return type with a dead `if not host` branch
+    that misleadingly logged `app.ctrader_disabled` while still returning
+    a stub. The real OpenApiPy adapter lands after the 1-day spike per
+    CLAUDE.md, and the signature is kept factory-shaped so the lifespan
+    wiring doesn't have to change on the swap.
+
+    When `host` / `client_id` / `client_secret` / `account_id` ARE
+    configured (i.e. the operator clearly expects a live connection) we
+    log at WARN level instead of INFO so an accidentally-live-config
+    run doesn't silently hit the stub.
     """
 
-    if not host and not client_id:
-        logger.info("app.ctrader_disabled", reason="no ctrader credentials configured")
-        return StubCTraderClient()
-
-    # TODO: replace with real adapter once the OpenApiPy spike lands.
-    logger.info(
-        "app.ctrader_stub_fallback",
-        reason="real OpenApiPy adapter not yet implemented — using StubCTraderClient",
-        host=host,
-        account_id=account_id,
-    )
-    _ = client_secret  # unused until real adapter
+    _ = client_secret  # held until the real adapter needs it
+    has_credentials = any((host, client_id, account_id))
+    if has_credentials:
+        logger.warning(
+            "app.ctrader_stub_fallback",
+            reason=(
+                "real OpenApiPy adapter not yet implemented — using "
+                "StubCTraderClient despite configured credentials"
+            ),
+            host=host,
+            account_id=account_id,
+        )
+    else:
+        logger.info(
+            "app.ctrader_stub_default",
+            reason="no ctrader credentials configured — using StubCTraderClient",
+        )
     return StubCTraderClient()

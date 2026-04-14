@@ -15,6 +15,7 @@ from typing import Any
 import asyncpg
 
 from app.logging import get_logger
+from app.services.facets.agent import AgentFacet
 from app.services.facets.asset_class import AssetClassFacet
 from app.services.facets.base import Facet, FacetSelection, FacetValue
 from app.services.facets.broker import BrokerFacet
@@ -51,6 +52,7 @@ class FacetRegistry:
 _DEFAULT_ORDER: list[type] = [
     AssetClassFacet,
     BrokerFacet,
+    AgentFacet,
     HorizonFacet,
     StrategyFacet,
     TriggerSourceFacet,

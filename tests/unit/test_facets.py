@@ -13,10 +13,13 @@ from app.services.facets import build_where_clause, get_registry
 def test_registry_exposes_expected_facets() -> None:
     registry = get_registry()
     names = registry.names
-    # The eight canonical facets, in order.
+    # Nine canonical facets in render order. `agent` was added in
+    # Epic 8 Tranche A (code-review H10) so Chef can filter the journal
+    # by cTrader bot-agent or drop to "Alle Bot-Trades".
     assert names == [
         "asset_class",
         "broker",
+        "agent",
         "horizon",
         "strategy",
         "trigger_type",
