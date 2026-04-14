@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
 
@@ -269,6 +270,43 @@ async def post_status(request: Request, strategy_id: int):
         "fragments/status_badge.html",
         {"strategy": strategy, "interactive": True},
         headers=headers,
+    )
+
+
+@router.post("/{strategy_id}/override-kill-switch", include_in_schema=False)
+async def post_override_kill_switch(request: Request, strategy_id: int):
+    """Story 9.3 AC #1 — re-activate a kill-switch-paused strategy.
+
+    Writes an `audit_log` row with `event_type='kill_switch_overridden'`
+    so FR44's "manual override of kill-switch" trail is durable and
+    the Regime page's override-history table can render the entry.
+    """
+
+    from app.services.kill_switch import (
+        StrategyNotPausedByKillSwitchError,
+        manual_override,
+    )
+
+    db_pool = await _require_pool(request)
+    async with db_pool.acquire() as conn:
+        try:
+            result = await manual_override(conn, strategy_id)
+        except StrategyNotPausedByKillSwitchError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from None
+
+    return JSONResponse(
+        {"status": "active", "strategy": result},
+        status_code=200,
+        headers={
+            "HX-Trigger": json.dumps(
+                {
+                    "showToast": {
+                        "message": f"Override: {result['name']} reaktiviert",
+                        "variant": "success",
+                    }
+                }
+            )
+        },
     )
 
 

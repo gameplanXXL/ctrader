@@ -126,10 +126,10 @@ development_status:
   # =========================================================================
   # EPIC 9: Regime-Awareness & Kill-Switch
   # =========================================================================
-  epic-9: backlog
-  9-1-regime-snapshot-model: ready-for-dev
-  9-2-horizon-aware-kill-switch: ready-for-dev
-  9-3-kill-switch-override-regime-page: ready-for-dev
+  epic-9: review  # Yolo-mode implementation 2026-04-14 — regime snapshots + kill switch + override page
+  9-1-regime-snapshot-model: review
+  9-2-horizon-aware-kill-switch: review
+  9-3-kill-switch-override-regime-page: review  # scheduled-job registration pending Story 11.1 APScheduler framework
 
   # =========================================================================
   # EPIC 10: Gordon Trend-Radar

@@ -465,7 +465,28 @@ async def trends_page(request: Request):
 
 @router.get("/regime", include_in_schema=False)
 async def regime_page(request: Request):
-    return await _render(request, "regime")
+    """Story 9.3 — regime page with hero, paused-strategies, override history."""
+
+    from app.services.regime import get_current_regime
+
+    db_pool = getattr(request.app.state, "db_pool", None)
+    regime = None
+    db_error = False
+
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            async with db_pool.acquire() as conn:
+                regime = await get_current_regime(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("pages.regime.db_error", error=str(exc))
+            db_error = True
+
+    return await _render(
+        request,
+        "regime",
+        regime=regime,
+        db_error=db_error,
+    )
 
 
 @router.get("/settings", include_in_schema=False)

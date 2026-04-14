@@ -1,12 +1,233 @@
 {% extends "base.html" %}
 {% block title %}Regime · ctrader{% endblock %}
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Regime</h1>
-  <p class="page-placeholder">Coming soon — Epic 9 (Regime-Awareness &amp; Kill-Switch).</p>
+<section class="regime-page">
+  <header class="regime-page__header">
+    <h1 class="page-title">Regime</h1>
+    <form
+      class="regime-page__refresh"
+      hx-post="/api/regime/snapshot"
+      hx-swap="none"
+      hx-on::after-request="window.location.reload()"
+    >
+      <button type="submit" class="btn-secondary" title="Manuell einen neuen Regime-Snapshot erzeugen">
+        ⟳ Snapshot erzeugen
+      </button>
+    </form>
+  </header>
+
+  {% if db_error %}
+    <div class="regime-page__error" role="alert">
+      ⚠ Regime-Daten konnten nicht geladen werden (DB-Fehler).
+    </div>
+  {% elif regime is none or regime.snapshot is none %}
+    <div class="regime-page__empty">
+      <p>Noch kein Regime-Snapshot vorhanden.</p>
+      <p class="regime-page__empty-hint">
+        Klicke auf <em>Snapshot erzeugen</em> oder warte auf den täglichen
+        Scheduled Job (Story 11.1).
+      </p>
+    </div>
+  {% else %}
+    {% set snap = regime.snapshot %}
+
+    <!-- ─── Hero ───────────────────────────────────────────────── -->
+    <section class="regime-hero">
+      <article class="regime-hero__card">
+        <h2 class="regime-hero__label">FEAR &amp; GREED</h2>
+        <p class="regime-hero__value tabular">
+          {{ snap.fear_greed_index if snap.fear_greed_index is not none else '—' }}
+        </p>
+        <p class="regime-hero__sub">{{ regime.fg_classification }}</p>
+      </article>
+
+      <article class="regime-hero__card">
+        <h2 class="regime-hero__label">VIX</h2>
+        <p class="regime-hero__value tabular">
+          {{ '%.2f' | format(snap.vix) if snap.vix is not none else '—' }}
+        </p>
+        <p class="regime-hero__sub">Volatility Index</p>
+      </article>
+
+      <article class="regime-hero__card">
+        <h2 class="regime-hero__label">KILL-SWITCH</h2>
+        <p class="regime-hero__value {% if regime.kill_switch_active %}regime-hero__value--alert{% endif %}">
+          {% if regime.kill_switch_active %}🔴 ACTIVE{% else %}🟢 OFF{% endif %}
+        </p>
+        <p class="regime-hero__sub">
+          {{ regime.paused_count }} {% if regime.paused_count == 1 %}Strategie{% else %}Strategien{% endif %} pausiert
+        </p>
+      </article>
+    </section>
+
+    {% if snap.fetch_errors %}
+      <div class="regime-page__warning" role="alert">
+        ⚠ Datenquellen teilweise unerreichbar — Snapshot mit Null-Werten geschrieben
+        ({% for key, err in snap.fetch_errors.items() %}{{ key }}{% if not loop.last %}, {% endif %}{% endfor %})
+      </div>
+    {% endif %}
+
+    <!-- ─── Per-Broker 30d P&L ────────────────────────────────── -->
+    {% if snap.per_broker_pnl %}
+      <section class="regime-page__section">
+        <h3 class="regime-page__section-title">Per-Broker 30d Realisiertes P&amp;L</h3>
+        <table class="regime-page__table">
+          <thead>
+            <tr><th>Broker</th><th class="tabular">P&amp;L</th></tr>
+          </thead>
+          <tbody>
+            {% for broker, pnl in snap.per_broker_pnl.items() %}
+              <tr>
+                <td>{{ broker | upper }}</td>
+                <td class="tabular">{{ pnl | format_signed_money }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </section>
+    {% endif %}
+
+    <!-- ─── Paused by Kill-Switch ─────────────────────────────── -->
+    <section class="regime-page__section">
+      <h3 class="regime-page__section-title">
+        Pausiert durch Kill-Switch ({{ regime.paused_count }})
+      </h3>
+      {% if regime.paused_strategies %}
+        <table class="regime-page__table">
+          <thead>
+            <tr><th>Name</th><th>Horizon</th><th>Asset Class</th><th></th></tr>
+          </thead>
+          <tbody>
+            {% for strat in regime.paused_strategies %}
+              <tr id="paused-strategy-{{ strat.id }}">
+                <td><a href="/strategies/{{ strat.id }}">{{ strat.name }}</a></td>
+                <td>{{ strat.horizon }}</td>
+                <td>{{ strat.asset_class | upper }}</td>
+                <td>
+                  <button
+                    type="button"
+                    class="btn-secondary btn-small"
+                    hx-post="/strategies/{{ strat.id }}/override-kill-switch"
+                    hx-swap="none"
+                    hx-on::after-request="if (event.detail.successful) { document.getElementById('paused-strategy-{{ strat.id }}').remove(); }"
+                    hx-confirm="Strategie {{ strat.name }} manuell überschreiben und reaktivieren?"
+                  >
+                    Override →
+                  </button>
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="regime-page__empty-hint">
+          Keine Strategien durch den Kill-Switch pausiert.
+        </p>
+      {% endif %}
+    </section>
+
+    <!-- ─── Override History ──────────────────────────────────── -->
+    <section class="regime-page__section">
+      <h3 class="regime-page__section-title">Override-History (letzte 30 Tage)</h3>
+      {% if regime.override_history %}
+        <table class="regime-page__table">
+          <thead>
+            <tr><th>Zeit</th><th>Event</th><th>Strategie</th><th>Actor</th><th>F&amp;G</th></tr>
+          </thead>
+          <tbody>
+            {% for entry in regime.override_history %}
+              <tr>
+                <td class="tabular">{{ entry.created_at | format_datetime }}</td>
+                <td>
+                  {% if entry.event_type == 'kill_switch_overridden' %}
+                    <span class="status-pill status-pill--override">manual override</span>
+                  {% elif entry.action == 'pause' %}
+                    <span class="status-pill status-pill--pause">auto-pause</span>
+                  {% elif entry.action == 'recover' %}
+                    <span class="status-pill status-pill--recover">auto-recover</span>
+                  {% else %}
+                    <span class="status-pill">{{ entry.action }}</span>
+                  {% endif %}
+                </td>
+                <td>{{ entry.strategy_name or ('#' + entry.strategy_id|string) if entry.strategy_id else '—' }}</td>
+                <td>{{ entry.actor }}</td>
+                <td class="tabular">{{ entry.fear_greed_index if entry.fear_greed_index is not none else '—' }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="regime-page__empty-hint">Keine Kill-Switch-Events in den letzten 30 Tagen.</p>
+      {% endif %}
+    </section>
+  {% endif %}
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  .page-title { font-size: var(--font-size-title); margin: 0; }
+  .regime-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .regime-page__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .regime-page__empty,
+  .regime-page__error,
+  .regime-page__warning {
+    padding: var(--space-3) var(--space-4);
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-muted);
+  }
+  .regime-page__error { border-color: var(--color-loss, #ef4444); color: var(--color-loss, #ef4444); }
+  .regime-page__warning { border-color: var(--color-warn, #f59e0b); color: var(--color-warn, #f59e0b); }
+  .regime-page__empty-hint { color: var(--text-muted); font-size: var(--font-size-small); }
+
+  .regime-hero { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--space-4); }
+  .regime-hero__card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-4);
+    text-align: center;
+  }
+  .regime-hero__label { margin: 0; font-size: var(--font-size-small); color: var(--text-muted); }
+  .regime-hero__value { font-size: calc(var(--font-size-title) * 1.5); margin: var(--space-2) 0; font-weight: 600; }
+  .regime-hero__value--alert { color: var(--color-loss, #ef4444); }
+  .regime-hero__sub { margin: 0; font-size: var(--font-size-small); color: var(--text-muted); }
+
+  .regime-page__section { display: flex; flex-direction: column; gap: var(--space-2); }
+  .regime-page__section-title {
+    margin: 0;
+    font-size: var(--font-size-section);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-2);
+  }
+  .regime-page__table { width: 100%; border-collapse: collapse; }
+  .regime-page__table th,
+  .regime-page__table td {
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .regime-page__table th.tabular,
+  .regime-page__table td.tabular { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .btn-secondary,
+  .btn-small {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border-default);
+    padding: var(--space-1) var(--space-3);
+    font-family: inherit;
+    font-size: var(--font-size-small);
+    cursor: pointer;
+  }
+  .btn-secondary:hover,
+  .btn-small:hover { border-color: var(--accent); }
+
+  .status-pill--override { background: var(--accent); color: var(--bg-base); }
+  .status-pill--pause { background: var(--color-loss, #ef4444); color: white; }
+  .status-pill--recover { background: var(--color-profit, #10b981); color: white; }
 </style>
 {% endblock %}

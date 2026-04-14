@@ -122,6 +122,35 @@ def or_dash(value: Any) -> str:
     return str(value)
 
 
+def format_datetime(value: Any) -> str:
+    """Render a datetime as `YYYY-MM-DD HH:MM` for journal / regime tables."""
+
+    if value is None:
+        return EM_DASH
+    if isinstance(value, datetime):
+        return value.strftime("%Y-%m-%d %H:%M")
+    return str(value)
+
+
+def format_signed_money(value: Any) -> str:
+    """Render a money amount with explicit sign + $ prefix.
+
+    Used by the Regime page for per-broker 30d P&L rendering where a
+    negative number needs to scream harder than a positive one.
+    """
+
+    if value is None:
+        return EM_DASH
+    try:
+        amount = Decimal(str(value))
+    except (TypeError, ValueError, InvalidOperation):
+        return EM_DASH
+    if amount == 0:
+        return "$0.00"
+    sign = "+" if amount > 0 else "-"
+    return f"{sign}${abs(amount):,.2f}"
+
+
 # Map of filter-name → callable, registered into the Jinja2 environment
 # from `app.routers.pages` at import time.
 JINJA_FILTERS = {
@@ -132,4 +161,6 @@ JINJA_FILTERS = {
     "format_quantity": format_quantity,
     "format_price": format_price,
     "or_dash": or_dash,
+    "format_datetime": format_datetime,
+    "format_signed_money": format_signed_money,
 }

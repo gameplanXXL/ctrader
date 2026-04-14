@@ -32,6 +32,7 @@ from app.routers import api as api_router
 from app.routers import approvals as approvals_router
 from app.routers import debug as debug_router
 from app.routers import pages as pages_router
+from app.routers import regime as regime_router
 from app.routers import strategies as strategies_router
 from app.routers import trades as trades_router
 from app.services.bot_execution import handle_execution_event
@@ -195,6 +196,10 @@ app.include_router(strategies_router.router)
 
 # Approval pipeline + risk gate (Epic 7).
 app.include_router(approvals_router.router)
+
+# Epic 9: Regime-Awareness API (POST /api/regime/snapshot manual trigger).
+# The scheduled-job registration lands in Story 11.1 System-Health.
+app.include_router(regime_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)
