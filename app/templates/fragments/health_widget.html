@@ -1,0 +1,128 @@
+{#
+  Health widget fragment (Story 11.2).
+  Reused by:
+  - pages/settings.html (full mode: dots + job runs + contract test)
+  - /api/health endpoint (could be polled by top-bar via HTMX)
+
+  Expects `health` dict from app.services.health.collect_health().
+  Gracefully handles `health is None` (pool unavailable).
+#}
+{% if health is not none %}
+<section class="health-widget">
+  <h2 class="health-widget__title">System Health</h2>
+
+  <div class="health-widget__dots">
+    {% for key in ['ib', 'ctrader', 'mcp'] %}
+      {% set integration = health[key] %}
+      <div class="health-widget__dot-row">
+        <span class="health-dot health-dot--{{ integration.dot }}"
+              title="{{ integration.label }}: {{ integration.detail }}"
+              aria-label="{{ integration.label }}: {{ integration.detail }}"></span>
+        <span class="health-widget__dot-label">{{ integration.label }}</span>
+        <span class="health-widget__dot-detail">{{ integration.detail }}</span>
+      </div>
+    {% endfor %}
+  </div>
+
+  <h3 class="health-widget__section-title">Letzte Job-Läufe</h3>
+  <table class="health-widget__jobs">
+    <thead>
+      <tr>
+        <th>Job</th>
+        <th>Status</th>
+        <th>Letzter Lauf</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in health.last_job_runs %}
+        <tr>
+          <td>{{ run.job_label }}</td>
+          <td>
+            {% if run.status == 'success' %}
+              <span class="health-widget__pill health-widget__pill--ok">✓ success</span>
+            {% elif run.status == 'failure' %}
+              <span class="health-widget__pill health-widget__pill--fail">✗ failure</span>
+              {% if run.error_message %}
+                <span class="health-widget__err">{{ run.error_message[:80] }}</span>
+              {% endif %}
+            {% elif run.status == 'running' %}
+              <span class="health-widget__pill health-widget__pill--running">⏳ running</span>
+            {% else %}
+              <span class="health-widget__pill health-widget__pill--idle">—</span>
+            {% endif %}
+          </td>
+          <td class="tabular">
+            {% if run.completed_at %}
+              {{ run.completed_at | format_datetime }}
+            {% elif run.started_at %}
+              {{ run.started_at | format_datetime }}
+            {% else %}
+              noch nie
+            {% endif %}
+          </td>
+        </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</section>
+
+<style>
+  .health-widget { display: flex; flex-direction: column; gap: var(--space-2); }
+  .health-widget__title { margin: 0; font-size: var(--font-size-section); }
+  .health-widget__dots {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3) var(--space-4);
+    padding: var(--space-3) var(--space-4);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  .health-widget__dot-row {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-width: 200px;
+  }
+  .health-dot {
+    display: inline-block;
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+    background: var(--text-muted);
+    flex: 0 0 auto;
+  }
+  .health-dot--green { background: var(--color-profit, #10b981); }
+  .health-dot--yellow { background: var(--color-warn, #f59e0b); }
+  .health-dot--red { background: var(--color-loss, #ef4444); }
+  .health-dot--grey { background: var(--text-muted); }
+  .health-widget__dot-label { font-weight: 600; color: var(--text-primary); }
+  .health-widget__dot-detail { color: var(--text-muted); font-size: var(--font-size-small); }
+  .health-widget__section-title {
+    margin: var(--space-2) 0 0;
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .health-widget__jobs { width: 100%; border-collapse: collapse; }
+  .health-widget__jobs th,
+  .health-widget__jobs td {
+    padding: var(--space-2) var(--space-3);
+    text-align: left;
+    border-bottom: 1px solid var(--border-subtle);
+    font-size: var(--font-size-small);
+  }
+  .health-widget__jobs th { color: var(--text-muted); font-weight: 500; }
+  .health-widget__pill {
+    display: inline-block;
+    padding: 1px var(--space-2);
+    font-size: var(--font-size-label);
+    border-radius: 2px;
+  }
+  .health-widget__pill--ok { background: var(--color-profit, #10b981); color: white; }
+  .health-widget__pill--fail { background: var(--color-loss, #ef4444); color: white; }
+  .health-widget__pill--running { background: var(--color-warn, #f59e0b); color: white; }
+  .health-widget__pill--idle { background: var(--border-subtle); color: var(--text-muted); }
+  .health-widget__err { color: var(--text-muted); font-size: var(--font-size-label); }
+</style>
+{% endif %}

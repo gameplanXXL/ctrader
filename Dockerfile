@@ -56,9 +56,26 @@ FROM python:3.12-slim-bookworm AS runtime
 
 WORKDIR /app
 
-# Runtime system deps for asyncpg.
+# Runtime system deps:
+# - libpq5            → asyncpg runtime
+# - postgresql-client-16 → Story 11.3 `pg_dump` for daily backups.
+#   Must match the server major version (postgres:16-alpine in
+#   docker-compose.yml). Pulled from apt.postgresql.org because
+#   debian bookworm only ships client-15 which pg_dump refuses to
+#   use against a server-16 instance.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         libpq5 \
+        curl \
+        ca-certificates \
+        gnupg \
+    && install -d /usr/share/postgresql-common/pgdg \
+    && curl -o /usr/share/postgresql-common/pgdg/apt.postgresql.org.asc \
+        --fail https://www.postgresql.org/media/keys/ACCC4CF8.asc \
+    && echo "deb [signed-by=/usr/share/postgresql-common/pgdg/apt.postgresql.org.asc] https://apt.postgresql.org/pub/repos/apt bookworm-pgdg main" \
+        > /etc/apt/sources.list.d/pgdg.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends postgresql-client-16 \
+    && apt-get purge -y --auto-remove curl gnupg \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy the built venv from the builder stage.
@@ -76,7 +93,8 @@ COPY --from=tailwind-build /app/app/static/css/compiled.css /app/app/static/css/
 
 # Data directories (log rotation, mcp snapshots). docker-compose mounts
 # these as volumes so logs survive container restarts.
-RUN mkdir -p /app/data/logs /app/data/mcp-snapshots
+RUN mkdir -p /app/data/logs /app/data/mcp-snapshots /app/data/backups \
+    && chmod 0700 /app/data/backups
 
 EXPOSE 8000
 

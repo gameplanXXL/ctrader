@@ -34,9 +34,11 @@ from app.routers import debug as debug_router
 from app.routers import gordon as gordon_router
 from app.routers import pages as pages_router
 from app.routers import regime as regime_router
+from app.routers import settings as settings_router
 from app.routers import strategies as strategies_router
 from app.routers import trades as trades_router
 from app.services.bot_execution import handle_execution_event
+from app.services.scheduler import setup_scheduler, shutdown_scheduler
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
 
@@ -84,6 +86,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ib = None
     app.state.ib_available = False
     app.state.ctrader_client = None
+    app.state.scheduler = None
 
     try:
         app.state.db_pool = await create_pool()
@@ -155,11 +158,26 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
         await app.state.ctrader_client.subscribe_execution_events(_on_execution_event)
 
+        # Epic 11 / Story 11.1: APScheduler framework. All cron jobs
+        # (regime snapshot, Gordon weekly, DB backup, MCP contract
+        # test) are wired here — see `app.services.scheduler`. The
+        # scheduler is in-process (NFR-M6) and stopped on teardown.
+        try:
+            app.state.scheduler = setup_scheduler(
+                db_pool=app.state.db_pool,
+                mcp_client=app.state.mcp_client,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("app.scheduler_startup_failed", error=str(exc))
+            app.state.scheduler = None
+
         yield
     finally:
         # Tear down in reverse order of construction. Each step is
         # null-guarded because partial startup failure may leave any of
         # them unset — we still want to close whatever DID succeed.
+        scheduler = getattr(app.state, "scheduler", None)
+        shutdown_scheduler(scheduler)
         ctrader_client = getattr(app.state, "ctrader_client", None)
         if ctrader_client is not None:
             await ctrader_client.aclose()
@@ -205,6 +223,10 @@ app.include_router(regime_router.router)
 # Epic 10: Gordon Trend-Radar API (POST /api/gordon/fetch manual trigger).
 # The weekly cron registration lands in Story 11.1 System-Health.
 app.include_router(gordon_router.router)
+
+# Epic 11: System-Health & Scheduled Operations. Owns /settings,
+# /api/health, and /settings/backup/download.
+app.include_router(settings_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)

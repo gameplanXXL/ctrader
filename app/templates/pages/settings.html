@@ -1,12 +1,130 @@
 {% extends "base.html" %}
 {% block title %}Settings · ctrader{% endblock %}
+
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Settings</h1>
-  <p class="page-placeholder">Coming soon — Epic 12 (System-Health &amp; Scheduled Operations).</p>
+<section class="settings-page">
+  <header class="settings-page__header">
+    <h1 class="page-title">Settings</h1>
+  </header>
+
+  {% if health is none %}
+    <div class="settings-page__error" role="alert">
+      ⚠ Health-Daten konnten nicht geladen werden (DB-Pool nicht verfügbar).
+    </div>
+  {% else %}
+    {# Health widget fragment — also reused by /api/health for HTMX polling. #}
+    {% include "fragments/health_widget.html" with context %}
+
+    <!-- ─── Database backup section ─────────────────────────── -->
+    <section class="settings-page__section">
+      <h2 class="settings-page__section-title">Database Backup</h2>
+      {% if health.backup %}
+        <div class="settings-page__backup-row">
+          <div>
+            <p class="tabular">{{ health.backup.modified_at | format_datetime }}</p>
+            <p class="settings-page__backup-meta">
+              {{ (health.backup.size_bytes / 1024 / 1024) | round(2) }} MB
+            </p>
+          </div>
+          <a href="/settings/backup/download" class="btn-secondary">⬇ Download</a>
+        </div>
+      {% else %}
+        <p class="settings-page__empty-hint">
+          Noch kein Backup vorhanden. Der tägliche Job läuft um 04:00 UTC,
+          oder trigger manuell über die Test-CLI.
+        </p>
+      {% endif %}
+      <details class="settings-page__docs">
+        <summary>Recovery-Prozedur</summary>
+        <p>Die komplette Schritt-für-Schritt-Anleitung liegt in <code>docs/recovery.md</code>.</p>
+      </details>
+    </section>
+
+    <!-- ─── MCP Configuration summary ───────────────────────── -->
+    <section class="settings-page__section">
+      <h2 class="settings-page__section-title">MCP-Konfiguration</h2>
+      <dl class="settings-page__kv">
+        <dt>Status</dt>
+        <dd>{{ health.mcp.detail }}</dd>
+        <dt>Contract-Test</dt>
+        <dd>
+          {% if health.contract_test %}
+            {{ health.contract_test.status | upper }} · {{ health.contract_test.run_at | format_datetime }}
+            {% if health.contract_test.has_drift %}
+              <span class="settings-page__badge settings-page__badge--fail">DRIFT</span>
+            {% endif %}
+          {% else %}
+            —
+          {% endif %}
+        </dd>
+      </dl>
+    </section>
+
+    <!-- ─── Taxonomy preview (read-only) ────────────────────── -->
+    <section class="settings-page__section">
+      <h2 class="settings-page__section-title">Taxonomie (read-only)</h2>
+      <p class="settings-page__empty-hint">
+        Bearbeitung per File-Edit an <code>taxonomy.yaml</code> + App-Restart.
+        UI-Editor ist Phase 2.
+      </p>
+    </section>
+  {% endif %}
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  .page-title { font-size: var(--font-size-title); margin: 0; }
+  .settings-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .settings-page__header {
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .settings-page__error {
+    padding: var(--space-3) var(--space-4);
+    border: 1px dashed var(--color-loss, #ef4444);
+    color: var(--color-loss, #ef4444);
+  }
+  .settings-page__section { display: flex; flex-direction: column; gap: var(--space-2); }
+  .settings-page__section-title {
+    margin: 0;
+    font-size: var(--font-size-section);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-1);
+  }
+  .settings-page__empty-hint { color: var(--text-muted); font-size: var(--font-size-small); }
+  .settings-page__backup-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--bg-surface);
+    padding: var(--space-3) var(--space-4);
+    border: 1px solid var(--border-subtle);
+  }
+  .settings-page__backup-meta { margin: 0; color: var(--text-muted); font-size: var(--font-size-small); }
+  .settings-page__kv { display: grid; grid-template-columns: 200px 1fr; gap: var(--space-2); margin: 0; }
+  .settings-page__kv dt { color: var(--text-muted); }
+  .settings-page__kv dd { margin: 0; }
+  .settings-page__badge {
+    display: inline-block;
+    padding: 1px var(--space-2);
+    font-size: var(--font-size-label);
+    border-radius: 2px;
+  }
+  .settings-page__badge--fail { background: var(--color-loss, #ef4444); color: white; }
+  .settings-page__docs {
+    margin-top: var(--space-2);
+    font-size: var(--font-size-small);
+    color: var(--text-muted);
+  }
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2) var(--space-4);
+    font-family: inherit;
+    font-size: var(--font-size-small);
+    text-decoration: none;
+    cursor: pointer;
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
 </style>
 {% endblock %}

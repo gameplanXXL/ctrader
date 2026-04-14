@@ -28,6 +28,7 @@ services:
     volumes:
       - ./data/logs:/app/data/logs
       - ./data/mcp-snapshots:/app/data/mcp-snapshots
+      - ./data/backups:/app/data/backups
     depends_on:
       postgres:
         condition: service_healthy
