@@ -154,8 +154,8 @@ development_status:
   #   with fester Stop-Loss auf Aktien- oder Option-Preis. Epic swapped
   #   from position 11 to position 12 (ans Ende der Pipeline).
   # =========================================================================
-  epic-12: backlog
-  12-1-quick-order-form-stock-and-option: ready-for-dev
-  12-2-confirmation-bracket-order-fixed-stop: ready-for-dev
-  12-3-order-status-tracking-near-assignment: ready-for-dev
-  12-4-error-handling-transient-terminal: ready-for-dev
+  epic-12: review  # Yolo-mode implementation 2026-04-14 — IB Quick-Order (stock + single-leg option) via StubIBQuickOrderClient; real ib_async adapter pending TWS/Gateway setup
+  12-1-quick-order-form-stock-and-option: review
+  12-2-confirmation-bracket-order-fixed-stop: review
+  12-3-order-status-tracking-near-assignment: review  # near-assignment scheduled job deferred — service + trade metadata plumbing in place
+  12-4-error-handling-transient-terminal: review

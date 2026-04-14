@@ -1,0 +1,243 @@
+{#
+  Quick-Order form fragment (Epic 12 / Story 12.1).
+
+  Expects context: `symbol`, `asset_class` ('stock'|'option'),
+  `ib_connected`.
+
+  Uses Alpine.js for the asset-class toggle + short-option warning
+  banner + chain-loading state. Keyboard shortcut `S`/`O` toggles
+  asset class per AC #1.
+#}
+<div
+  class="quick-order-form"
+  x-data="quickOrderForm({{ {'asset_class': asset_class, 'symbol': symbol} | tojson }})"
+  @keydown.window.prevent.s="if (isTypable($event.target)) return; setMode('stock')"
+  @keydown.window.prevent.o="if (isTypable($event.target)) return; setMode('option')"
+>
+  {% if not ib_connected %}
+    <div class="quick-order-form__offline" role="alert">
+      ⚠ IB TWS/Gateway nicht verbunden — Start TWS oder Gateway auf Port 7497/4002
+    </div>
+  {% endif %}
+
+  <header class="quick-order-form__header">
+    <h2 class="quick-order-form__title">Quick Order · {{ symbol or '—' }}</h2>
+    <div class="quick-order-form__tabs" role="tablist">
+      <button type="button" role="tab"
+              :aria-selected="mode === 'stock'"
+              :class="{ 'active': mode === 'stock' }"
+              @click="setMode('stock')">Stock (S)</button>
+      <button type="button" role="tab"
+              :aria-selected="mode === 'option'"
+              :class="{ 'active': mode === 'option' }"
+              @click="setMode('option')">Option (O)</button>
+    </div>
+  </header>
+
+  {# Short-Option warning banner (AC #5) — persistent while side=SELL in option mode #}
+  <div
+    class="quick-order-form__short-warn"
+    role="alert"
+    x-show="mode === 'option' && side === 'SELL'"
+    x-cloak
+  >
+    ⚠ SHORT OPTION — Margin-Anforderung &amp; Assignment-Risk
+  </div>
+
+  <form
+    class="quick-order-form__body"
+    hx-post="/trades/quick-order/preview"
+    hx-target="#quick-order-preview-slot"
+    hx-swap="innerHTML"
+    {% if not ib_connected %}hx-disable="true"{% endif %}
+  >
+    <input type="hidden" name="asset_class" :value="mode">
+    <input type="hidden" name="symbol" value="{{ symbol }}">
+
+    <!-- Stock-mode fields -->
+    <div class="quick-order-form__section" x-show="mode === 'stock'" x-cloak>
+      <label class="form-label">
+        Side
+        <div class="quick-order-form__radios">
+          <label><input type="radio" name="side" value="BUY" x-model="side" checked> Buy</label>
+          <label><input type="radio" name="side" value="SELL" x-model="side"> Sell</label>
+        </div>
+      </label>
+      <label class="form-label">
+        Quantity
+        <input type="number" name="quantity" min="1" step="1" required x-model="quantity">
+      </label>
+      <label class="form-label">
+        Limit-Preis
+        <input type="number" name="limit_price" min="0.01" step="0.01" required x-model="limit_price">
+      </label>
+      <label class="form-label">
+        Fester Stop-Loss
+        <input type="number" name="stop_price" min="0.01" step="0.01" required x-model="stop_price">
+      </label>
+    </div>
+
+    <!-- Option-mode fields -->
+    <div class="quick-order-form__section" x-show="mode === 'option'" x-cloak>
+      <label class="form-label">
+        Side
+        <div class="quick-order-form__radios">
+          <label><input type="radio" name="side" value="BUY" x-model="side"> Buy-To-Open</label>
+          <label><input type="radio" name="side" value="SELL" x-model="side"> Sell-To-Open</label>
+        </div>
+      </label>
+      <label class="form-label">
+        Right
+        <div class="quick-order-form__radios">
+          <label><input type="radio" name="option_right" value="C" x-model="option_right" @change="loadChain()"> Call</label>
+          <label><input type="radio" name="option_right" value="P" x-model="option_right" @change="loadChain()"> Put</label>
+        </div>
+      </label>
+      <label class="form-label">
+        Expiry
+        <select name="option_expiry" x-model="option_expiry" required>
+          <option value="">— Expiry wählen —</option>
+          <template x-for="exp in availableExpiries" :key="exp">
+            <option :value="exp" x-text="exp"></option>
+          </template>
+        </select>
+      </label>
+      <label class="form-label">
+        Strike
+        <select name="option_strike" x-model="option_strike" required>
+          <option value="">— Strike wählen —</option>
+          <template x-for="strike in availableStrikes" :key="strike">
+            <option :value="strike" x-text="strike"></option>
+          </template>
+        </select>
+      </label>
+      <label class="form-label">
+        Contracts
+        <input type="number" name="quantity" min="1" step="1" required x-model="quantity">
+      </label>
+      <label class="form-label">
+        Limit pro Contract
+        <input type="number" name="limit_price" min="0.01" step="0.01" required x-model="limit_price">
+      </label>
+      <label class="form-label">
+        Fester Stop auf Option-Preis
+        <input type="number" name="stop_price" min="0.01" step="0.01" required x-model="stop_price">
+      </label>
+    </div>
+
+    <div class="quick-order-form__actions">
+      <button type="submit"
+              class="btn-primary"
+              {% if not ib_connected %}disabled{% endif %}>
+        Weiter →
+      </button>
+      <span class="quick-order-form__hint">Pflichtiger Bestätigungs-Schritt (FR54)</span>
+    </div>
+  </form>
+
+  <div id="quick-order-preview-slot"></div>
+</div>
+
+<script>
+  /* Alpine.js component state for the Quick-Order form.
+     Story 12.1 AC #1: mode toggle with S/O keyboard shortcut.
+     Story 12.1 AC #3+#4: options-chain loading via /trades/quick-order/options-chain. */
+  document.addEventListener('alpine:init', () => {
+    Alpine.data('quickOrderForm', (initial) => ({
+      mode: initial.asset_class || 'stock',
+      symbol: initial.symbol || '',
+      side: 'BUY',
+      quantity: '',
+      limit_price: '',
+      stop_price: '',
+      option_right: 'C',
+      option_expiry: '',
+      option_strike: '',
+      chain: { C: {}, P: {} },
+      setMode(m) { this.mode = m; if (m === 'option' && !this.chainLoaded) this.loadChain(); },
+      async loadChain() {
+        if (!this.symbol) return;
+        try {
+          const resp = await fetch(`/trades/quick-order/options-chain?symbol=${this.symbol}`);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+          const data = await resp.json();
+          this.chain = data.expiries_by_right || { C: {}, P: {} };
+          this.chainLoaded = true;
+        } catch (e) {
+          console.warn('options-chain fetch failed', e);
+        }
+      },
+      get availableExpiries() {
+        const byExpiry = this.chain[this.option_right] || {};
+        return Object.keys(byExpiry).sort();
+      },
+      get availableStrikes() {
+        const byExpiry = this.chain[this.option_right] || {};
+        return this.option_expiry && byExpiry[this.option_expiry]
+          ? byExpiry[this.option_expiry]
+          : [];
+      },
+    }));
+  });
+
+  function isTypable(el) {
+    if (!el || !el.tagName) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT';
+  }
+</script>
+
+<style>
+  .quick-order-form { display: flex; flex-direction: column; gap: var(--space-3); }
+  .quick-order-form__offline {
+    padding: var(--space-3) var(--space-4);
+    background: rgba(239, 68, 68, 0.12);
+    border-left: 4px solid var(--color-loss, #ef4444);
+    color: var(--color-loss, #ef4444);
+  }
+  .quick-order-form__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .quick-order-form__title { margin: 0; font-size: var(--font-size-section); }
+  .quick-order-form__tabs { display: flex; gap: var(--space-1); }
+  .quick-order-form__tabs button {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-1) var(--space-3);
+    color: var(--text-muted);
+    font-family: inherit;
+    cursor: pointer;
+  }
+  .quick-order-form__tabs button.active {
+    background: var(--accent);
+    color: var(--bg-void);
+    border-color: var(--accent);
+  }
+  .quick-order-form__short-warn {
+    padding: var(--space-2) var(--space-3);
+    background: var(--color-loss, #ef4444);
+    color: white;
+    font-weight: 600;
+    border-radius: 2px;
+  }
+  .quick-order-form__section {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .quick-order-form__radios { display: flex; gap: var(--space-3); }
+  .quick-order-form__actions { display: flex; align-items: center; gap: var(--space-3); }
+  .quick-order-form__hint { color: var(--text-muted); font-size: var(--font-size-small); }
+  .btn-primary {
+    background: var(--accent);
+    color: var(--bg-void);
+    border: none;
+    padding: var(--space-2) var(--space-4);
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+  [x-cloak] { display: none !important; }
+</style>

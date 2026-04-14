@@ -1,0 +1,116 @@
+{#
+  Quick-Order preview fragment (Epic 12 / Story 12.2).
+
+  Expects `preview: QuickOrderPreview` in the context.
+  Renders all decision-relevant numbers in a single viewport (NFR-R3b).
+  Short-Options get a mandatory Margin-Acknowledge-Checkbox (AC #3).
+#}
+{% set form = preview.form %}
+
+<div class="quick-order-preview" x-data="{ acknowledgeMargin: false }">
+  <h3 class="quick-order-preview__title">Bestätigung — {{ preview.contract_label }}</h3>
+
+  <dl class="quick-order-preview__grid">
+    <dt>Side</dt><dd>{{ form.side }}</dd>
+    <dt>{% if form.asset_class == 'option' %}Contracts{% else %}Quantity{% endif %}</dt>
+    <dd class="tabular">{{ form.quantity }}</dd>
+    <dt>Limit</dt>
+    <dd class="tabular">{{ form.limit_price }}</dd>
+    <dt>Stop-Loss</dt>
+    <dd class="tabular quick-order-preview__stop">{{ form.stop_price }}</dd>
+    <dt>Risiko</dt>
+    <dd class="tabular quick-order-preview__risk">${{ '%.2f' | format(preview.risk_estimate | float) }}</dd>
+
+    {% if form.asset_class == 'option' and preview.margin %}
+      <dt>Geschätzte Margin</dt>
+      <dd class="tabular {% if preview.needs_acknowledge %}quick-order-preview__margin--alert{% endif %}">
+        ${{ '%.2f' | format(preview.margin.initial_margin_change | float) }}
+      </dd>
+      <dt>Commission</dt>
+      <dd class="tabular">${{ '%.2f' | format(preview.margin.commission | float) }}</dd>
+    {% endif %}
+  </dl>
+
+  <form
+    class="quick-order-preview__form"
+    hx-post="/trades/quick-order/submit"
+    hx-target="#quick-order-preview-slot"
+    hx-swap="innerHTML"
+  >
+    {# Mirror every form field so the submit endpoint sees the same payload. #}
+    <input type="hidden" name="asset_class" value="{{ form.asset_class }}">
+    <input type="hidden" name="symbol" value="{{ form.symbol }}">
+    <input type="hidden" name="side" value="{{ form.side }}">
+    <input type="hidden" name="quantity" value="{{ form.quantity }}">
+    <input type="hidden" name="limit_price" value="{{ form.limit_price }}">
+    <input type="hidden" name="stop_price" value="{{ form.stop_price }}">
+    {% if form.asset_class == 'option' %}
+      <input type="hidden" name="option_expiry" value="{{ form.option_expiry }}">
+      <input type="hidden" name="option_strike" value="{{ form.option_strike }}">
+      <input type="hidden" name="option_right" value="{{ form.option_right }}">
+      <input type="hidden" name="option_multiplier" value="{{ form.option_multiplier or 100 }}">
+    {% endif %}
+    {% if form.strategy_id %}<input type="hidden" name="strategy_id" value="{{ form.strategy_id }}">{% endif %}
+    {% if form.trigger_source %}<input type="hidden" name="trigger_source" value="{{ form.trigger_source }}">{% endif %}
+    {% if form.horizon %}<input type="hidden" name="horizon" value="{{ form.horizon }}">{% endif %}
+
+    {% if preview.needs_acknowledge %}
+      <label class="quick-order-preview__ack">
+        <input type="checkbox" name="acknowledge_margin" value="true"
+               x-model="acknowledgeMargin" required>
+        <span>Ich verstehe die Margin-Anforderung und das Assignment-Risk</span>
+      </label>
+    {% endif %}
+
+    <div class="quick-order-preview__actions">
+      <button type="submit"
+              class="btn-primary"
+              {% if preview.needs_acknowledge %}:disabled="!acknowledgeMargin"{% endif %}>
+        Order senden
+      </button>
+      <button type="button"
+              class="btn-secondary"
+              onclick="document.getElementById('quick-order-preview-slot').innerHTML = ''">
+        Zurück
+      </button>
+    </div>
+  </form>
+</div>
+
+<style>
+  .quick-order-preview {
+    border: 1px solid var(--border-default);
+    background: var(--bg-surface);
+    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+  }
+  .quick-order-preview__title { margin: 0 0 var(--space-2); font-size: var(--font-size-section); }
+  .quick-order-preview__grid {
+    display: grid;
+    grid-template-columns: 160px 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: 0;
+  }
+  .quick-order-preview__grid dt { color: var(--text-muted); }
+  .quick-order-preview__grid dd { margin: 0; }
+  .quick-order-preview__stop,
+  .quick-order-preview__risk { color: var(--accent); font-weight: 600; }
+  .quick-order-preview__margin--alert { color: var(--color-loss, #ef4444); font-weight: 600; }
+  .quick-order-preview__ack {
+    display: flex;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+    padding: var(--space-2) var(--space-3);
+    background: rgba(239, 68, 68, 0.1);
+    border-left: 4px solid var(--color-loss, #ef4444);
+  }
+  .quick-order-preview__actions { display: flex; gap: var(--space-3); }
+  .btn-secondary {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2) var(--space-4);
+    font-family: inherit;
+    cursor: pointer;
+  }
+</style>

@@ -23,6 +23,7 @@ from fastapi.staticfiles import StaticFiles
 from app import __version__
 from app.clients.ctrader import build_ctrader_client
 from app.clients.ib import connect_ib, disconnect_ib
+from app.clients.ib_quick_order import build_ib_quick_order_client
 from app.clients.mcp import handshake as mcp_handshake
 from app.config import settings
 from app.db.migrate import run_migrations
@@ -33,6 +34,7 @@ from app.routers import approvals as approvals_router
 from app.routers import debug as debug_router
 from app.routers import gordon as gordon_router
 from app.routers import pages as pages_router
+from app.routers import quick_order as quick_order_router
 from app.routers import regime as regime_router
 from app.routers import settings as settings_router
 from app.routers import strategies as strategies_router
@@ -86,6 +88,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.ib = None
     app.state.ib_available = False
     app.state.ctrader_client = None
+    app.state.ib_quick_order_client = None
     app.state.scheduler = None
 
     try:
@@ -128,6 +131,32 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             client_secret=settings.ctrader_client_secret,
             account_id=settings.ctrader_account_id,
         )
+
+        # IB Quick-Order client — Epic 12. Always available (defaults
+        # to `StubIBQuickOrderClient` when `ib_host` is not set) so
+        # the Story-12 pipeline (form → preview → bracket submission)
+        # is exercisable end-to-end without a live TWS. When Chef has
+        # TWS running locally, a future `IBAsyncQuickOrderClient`
+        # drops in behind the same factory.
+        app.state.ib_quick_order_client = build_ib_quick_order_client(
+            ib_host=settings.ib_host,
+            ib_port=settings.ib_port,
+        )
+
+        # Story 12.3: wire the fill-event handler so FILLED events
+        # from the Quick-Order client land as trade rows with
+        # auto-tagged trigger_spec.
+        db_pool_for_quick_events = app.state.db_pool
+
+        async def _on_quick_order_fill(event) -> None:
+            if db_pool_for_quick_events is None:
+                return
+            from app.services.ib_quick_order import handle_fill_event
+
+            async with db_pool_for_quick_events.acquire() as event_conn:
+                await handle_fill_event(event_conn, event)
+
+        await app.state.ib_quick_order_client.subscribe_execution_events(_on_quick_order_fill)
 
         # Story 8.2: wire the execution-event handler to the cTrader
         # client so FILLED events land in `trades`. Handler uses the
@@ -191,6 +220,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # them unset — we still want to close whatever DID succeed.
         scheduler = getattr(app.state, "scheduler", None)
         shutdown_scheduler(scheduler)
+        ib_quick_order_client = getattr(app.state, "ib_quick_order_client", None)
+        if ib_quick_order_client is not None:
+            await ib_quick_order_client.aclose()
         ctrader_client = getattr(app.state, "ctrader_client", None)
         if ctrader_client is not None:
             await ctrader_client.aclose()
@@ -240,6 +272,11 @@ app.include_router(gordon_router.router)
 # Epic 11: System-Health & Scheduled Operations. Owns /settings,
 # /api/health, and /settings/backup/download.
 app.include_router(settings_router.router)
+
+# Epic 12: IB Swing-Order. Owns /trades/quick-order/form + preview +
+# submit + options-chain. Stub-backed client by default so the
+# pipeline runs without a live TWS/Gateway.
+app.include_router(quick_order_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)
