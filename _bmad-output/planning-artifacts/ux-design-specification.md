@@ -896,40 +896,54 @@ flowchart TD
 
 **Klick-Zählung:** 6 Klicks pro Trade (Widget + Trade + 3 Dropdowns + Enter). Bei 3 Trades/Tag: **~3 Minuten Tagging-Ritual**.
 
-### Journey 6 — IB Quick-Order mit Trailing Stop-Loss — Der Aktive-Trader-Flow
+### Journey 6 — IB Swing-Order (Stock + Single-Leg-Option) mit festem Stop-Loss — Der Aktive-Trader-Flow
 
-**Modus:** Aktiver Trader. Chef hat seine Analyse abgeschlossen (Viktor-Einschätzung gelesen, Chart geprüft, Trigger-Spec im Kopf) und will einen Aktien-Swing-Trade bei Interactive Brokers aufsetzen — inklusive automatischem Trailing Stop-Loss, ohne dafür in die TWS wechseln zu müssen.
+**Scope-Update 2026-04-14:** Journey erweitert von Aktien-only + Trailing auf Aktien + Single-Leg-Optionen (Long/Short Call/Put, Fokus Short-Verkauf) mit **festem Stop-Loss** auf Aktien- oder Option-Preis. Epic-Position ans Ende der Pipeline verschoben (Epic 12).
 
-**Klick-Budget: ≤ 6 Klicks pro Order.**
-**Keyboard-Alternative: Ctrl+K → "quick order" + Symbol + 4 Felder + Enter + Bestätigung.**
+**Modus:** Aktiver Trader. Chef hat seine Analyse abgeschlossen (Viktor-Einschätzung gelesen, Chart geprüft, Trigger-Spec im Kopf) und will einen Swing-Trade bei Interactive Brokers aufsetzen — entweder eine Aktie oder eine Single-Leg-Option — inklusive festem Stop-Loss, ohne dafür in die TWS wechseln zu müssen.
+
+**Klick-Budget: ≤ 6 Klicks pro Stock-Order, ≤ 8 Klicks pro Option-Order.**
+**Keyboard-Alternative: Ctrl+K → "quick order" + Symbol + S/O (Asset-Class) + Felder + Enter + Bestätigung.**
 
 ```mermaid
 flowchart TD
-    A[Chef ist im Journal oder auf Watchlist] --> B[Klick Quick Order neben Asset]
-    B --> C[Inline-Formular oeffnet sich: Symbol vorausgefuellt]
-    C --> D[Chef fuellt Side Buy Sell + Quantity + Limit + Trailing Stop aus]
-    D --> E[Klick Vorschau]
-    E --> F[Bestaetigungs-Zusammenfassung: alle Zahlen ohne Scrollen]
-    F --> G{Alles korrekt?}
+    A[Chef ist im Journal, Watchlist oder Trade-Drilldown] --> B[Klick Quick Order neben Asset]
+    B --> C[Inline-Formular oeffnet sich: Asset-Class-Toggle Stock oder Option]
+    C --> D{Asset-Class?}
+    D -->|Stock| DS[Side + Quantity + Limit + fester Stop]
+    D -->|Option| DO[Side BuyToOpen oder SellToOpen + Expiry + Strike + Right + Contracts + Limit + fester Stop auf Option-Preis]
+    DO --> DW{Short-Option?}
+    DW -->|Ja| DB[Persistenter roter Banner: SHORT OPTION - Margin und Assignment-Risk]
+    DW -->|Nein| E[Klick Vorschau]
+    DB --> E
+    DS --> E
+    E --> F[Bestaetigungs-Zusammenfassung: alle Zahlen ohne Scrollen inkl whatIfOrder-Margin bei Options]
+    F --> FM{Short-Option?}
+    FM -->|Ja| FC[Margin-Acknowledge-Checkbox pflicht]
+    FM -->|Nein| G{Alles korrekt?}
+    FC --> G
     G -->|Ja| H[Klick Order senden]
     G -->|Nein| D
     H --> I[HTMX POST /trades/quick-order]
-    I --> J[ib_async sendet Bracket: Parent Limit + Child Trailing Stop]
+    I --> J[ib_async qualifiziert Contract und sendet Bracket: Parent Limit + Child fester STP]
     J --> K{Order akzeptiert?}
-    K -->|Ja| L[Trade erscheint im Journal: status=submitted, auto-tagged]
+    K -->|Ja| L[Trade erscheint im Journal: status=submitted, auto-tagged mit asset_class]
     K -->|Nein transient| M[Auto-Retry max 3x Backoff]
-    K -->|Nein terminal| N[Error-Toast: Grund + Aktions-Hinweis]
+    K -->|Nein terminal| N[Error-Toast mit Grund + IB-Error-Code bei Options]
     M --> K
-    L --> O[Toast: Order platziert - Trailing Stop serverseitig bei IB]
+    L --> O[Toast: Order platziert - fester Stop-Loss aktiv]
 ```
 
-**Kritischer Moment:** Schritt F (Bestätigungs-Zusammenfassung). **Alle entscheidungsrelevanten Zahlen in einem Viewport, ohne Scrollen** (NFR-R3b): Symbol, Side, Quantity, Limit, Trailing-Stop-Amount, initiales Stop-Level (berechnet), geschätztes Risiko in $. Trailing-Stop-Betrag ist **prominent** — das ist der Sinn dieses Features, nicht eine Nebensache. Keine One-Click-Platzierung; der Bestätigungs-Schritt ist verpflichtend.
+**Kritischer Moment:** Schritt F (Bestätigungs-Zusammenfassung). **Alle entscheidungsrelevanten Zahlen in einem Viewport, ohne Scrollen** (NFR-R3b): Symbol/Contract, Side, Quantity, Limit, fester Stop-Level, geschätztes Risiko in $, bei Options zusätzlich geschätzte IB-Margin via `whatIfOrder()`. Bei Short-Options ist die **Margin-Acknowledge-Checkbox unübersehbar** im selben Viewport — ohne Haken ist "Absenden" disabled. Kein One-Click; der Bestätigungs-Schritt ist verpflichtend.
 
 **Scope-Grenzen dieser Journey (für die UI-Spezifikation bindend):**
-- **Nur Aktien** (Options Phase 2) — das Formular bietet keine Strike/Expiry/Right-Felder
-- **Kein nachträgliches Editieren** von Stop-Loss-Parametern aus ctrader — für Anpassungen Chef direkt in TWS
-- **Kein Take-Profit** als dritte Bracket-Leg — Trailing Stop-Loss ersetzt das (IB serverseitig)
+- **Single-Leg-Optionen only** — keine Spreads/Combos (Phase 2, `Bag`-Contract-UI)
+- **Fester Stop-Loss, kein Trailing** — Swing-Trades brauchen klare SL-Level
+- **Kein nachträgliches Editieren** von Order-Parametern aus ctrader — für Anpassungen Chef direkt in TWS
+- **Kein Take-Profit** als dritte Bracket-Leg — Swing-Exits sind diskretionär
+- **Kein Rolling** von Short-Positionen auf nächste Expiry (Phase 2)
 - **Kill-Switch-Exemption:** Bei aktivem Regime-Kill-Switch (Fear & Greed < 20) zeigt das Formular einen **informativen Warnbanner**, aber keinen Block. Chef hat aktiv entschieden zu handeln.
+- **Voraussetzung:** TWS oder IB Gateway läuft lokal (Port 7496/7497/4001/4002). Wenn nicht verbunden, Banner "IB TWS/Gateway nicht verbunden" und Absenden disabled.
 
 **Error-Paths:**
 - **Transient (Netzausfall, TWS-Reconnect):** Silent Auto-Retry mit Exponential Backoff (1s → 60s, max 3 Retries). Nur bei finalem Fehler erscheint ein Error-Toast.
@@ -1020,9 +1034,9 @@ Da ctrader ein **Handroll Design System** verwendet (Step 6), gibt es keine "ver
 
 **`trade_chart(candles, markers, indicators)`** — Interaktiver OHLC-Chart für den Trade-Drilldown (FR13c). Rendering via `lightweight-charts` (TradingView Open-Source, Apache 2.0, ~35KB, lokal gehostetes JS-File in `app/static/js/lightweight-charts.standalone.production.js`). States: Default (Candles + Marker) | Loading (Opacity-Flash während `GET /trades/{id}/chart_data`) | Empty ("Chart-Daten nicht verfügbar" in `--text-muted`, siehe UX-DR55) | Partial (Candles ohne Indikatoren). **Marker-Styles:** Entry als grüner `arrowUp`-Marker unterhalb der Candle, Exit als roter `arrowDown`-Marker oberhalb. Beide mit dem Trade-Preis als Tooltip. Granularität automatisch nach Trade-Horizont (1m/5m für Intraday, 1h für Short-Swing, 1d für Long-Swing/Position). Chart-Farben aus Design-Tokens: `--status-green`/`--status-red` für Candles, `--accent` für Marker. Accessibility: `role="img"`, `aria-label="OHLC-Chart für {symbol} vom {entry_time} bis {exit_time}, {n_candles} Candles"`.
 
-**`quick_order_form(context)`** — Inline-Formular für IB Quick-Order (FR53). Öffnet sich inline aus Journal-Zeile oder Watchlist via HTMX (`hx-get="/trades/quick-order/form?symbol={symbol}"`, `hx-target="#quick-order-slot"`). Felder: Symbol (vorausgefüllt, readonly) | Side (Buy/Sell, Radio) | Quantity (Number) | Limit-Preis (Number, optional mit Current-Price-Hint) | Trailing-Stop-Amount (Number) + Trailing-Stop-Unit (Radio: absolut $/prozentual %). States: Default | Loading (Opacity-Flash) | Invalid (rote Border + Inline-Fehlermeldung) | Submitted (in `quick_order_preview` übergegangen). Kein One-Click-Submit — "Vorschau" ist Pflicht-Zwischenschritt. Keyboard: Tab durch Felder, Enter triggert Vorschau. Accessibility: `<fieldset>` mit `<legend>`, `<label>` für jedes Feld.
+**`quick_order_form(context)`** — Inline-Formular für IB Swing-Order (FR53). Öffnet sich inline aus Journal-Zeile, Watchlist oder Trade-Drilldown via HTMX (`hx-get="/trades/quick-order/form?symbol={symbol}"`, `hx-target="#quick-order-slot"`). **Asset-Class-Toggle (Stock | Option)** oben, Keyboard `S`/`O` wechselt Modus. **Stock-Modus-Felder:** Symbol (vorausgefüllt, readonly) | Side (Buy/Sell, Radio) | Quantity (Number) | Limit-Preis (Number, optional mit Current-Price-Hint) | fester Stop-Loss (Number) + Stop-Unit (Radio: absolut $/prozentual %). **Option-Modus-Felder:** Underlying (readonly) | Side (Buy-To-Open / Sell-To-Open, Radio) | Expiry (Dropdown aus IB-Option-Chain via `reqContractDetails`, min. 5 DTE) | Strike (Dropdown aus Chain) | Right (Call/Put, Radio) | Contracts (Number) | Limit pro Contract (Number) | fester Stop-Loss auf Option-Preis (Number) + Unit (absolut $ / %). **Bei Sell-To-Open:** persistenter roter Warn-Banner "SHORT OPTION — Margin-Anforderung & Assignment-Risk" (nicht schließbar bis Asset-Class/Side geändert). States: Default | Loading (Opacity-Flash) | Invalid (rote Border + Inline-Fehlermeldung) | Chain-Loading (Expiry/Strike-Dropdowns mit Spinner) | Submitted (in `quick_order_preview` übergegangen). Kein One-Click-Submit — "Vorschau" ist Pflicht-Zwischenschritt. Keyboard: Tab durch Felder, Enter triggert Vorschau. Accessibility: `<fieldset>` mit `<legend>`, `<label>` für jedes Feld.
 
-**`quick_order_preview(order_spec)`** — Bestätigungs-Zusammenfassung vor Order-Absendung (FR54, NFR-R3b). **Kritisches Design-Kriterium: ALLE entscheidungsrelevanten Zahlen ohne Scrollen in einem Viewport.** Kein zweiter Dialog, kein versteckter Parameter. Grid-Layout mit: Symbol | Side | Quantity | Limit-Preis | Trailing-Stop-Betrag (prominent hervorgehoben mit `--accent`) | berechnetes initiales Stop-Level | geschätztes Risiko in $ (Quantity × (Limit - initiales Stop) für Buy). **Bei aktivem Regime-Kill-Switch** (Fear & Greed < 20): gelber Warnbanner oberhalb ("⚠ Aktuelles Regime: F&G = 18, Bot-Strategien pausiert — Quick-Order ist manuell und nicht blockiert"). Zwei Buttons: "Order senden" (primär, `--accent`) + "Zurück zum Formular" (sekundär). States: Default | Submitting (Spinner im Button, Button disabled) | Error (transient oder terminal, siehe Journey 6). Keyboard: Enter sendet, Escape schließt. Accessibility: `role="dialog"` mit `aria-labelledby`, Focus-Trap während Sichtbarkeit.
+**`quick_order_preview(order_spec)`** — Bestätigungs-Zusammenfassung vor Order-Absendung (FR54, NFR-R3b). **Kritisches Design-Kriterium: ALLE entscheidungsrelevanten Zahlen ohne Scrollen in einem Viewport.** Kein zweiter Dialog, kein versteckter Parameter. Grid-Layout — **Stock:** Symbol | Side | Quantity | Limit-Preis | fester Stop-Level (prominent mit `--accent`) | geschätztes Risiko in $. **Option:** Underlying + Contract-String (z.B. "SPY 2026-05-16 580 PUT") | Side (Buy-To-Open / Sell-To-Open) | Contracts × Multiplier 100 | Limit pro Contract | fester Stop auf Option-Preis (prominent) | geschätztes Risiko in $ | **geschätzte IB-Margin-Anforderung** via `whatIfOrder()` (bei Sell-To-Open mit `--status-red`-Hervorhebung). **Bei Short-Options (Sell-To-Open):** pflichtige **Margin-Acknowledge-Checkbox** im selben Viewport ("Ich verstehe Margin und Assignment-Risk") — ohne Haken ist "Order senden" disabled. **Bei aktivem Regime-Kill-Switch** (Fear & Greed < 20): gelber Warnbanner oberhalb ("⚠ Aktuelles Regime: F&G = 18, Bot-Strategien pausiert — Swing-Order ist manuell und nicht blockiert"). Zwei Buttons: "Order senden" (primär, `--accent`) + "Zurück zum Formular" (sekundär). States: Default | Submitting (Spinner im Button, Button disabled) | Error (transient oder terminal, siehe Journey 6) | Margin-Pending (bei Options während `whatIfOrder`-Call). Keyboard: Enter sendet (wenn Acknowledge gesetzt), Escape schließt. Accessibility: `role="dialog"` mit `aria-labelledby`, Focus-Trap während Sichtbarkeit.
 
 #### Tier 3 — Woche 5–8 (Slice B)
 

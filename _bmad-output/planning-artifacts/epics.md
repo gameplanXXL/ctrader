@@ -130,17 +130,17 @@ FR51: Das System fuehrt alle PostgreSQL-Schema-Aenderungen ausschliesslich ueber
 
 FR52: Das System erstellt taegliche PostgreSQL-Backups; die Recovery-Prozedur ist im Project-Knowledge dokumentiert.
 
-FR53: Chef kann aus dem Journal oder der Watchlist heraus eine Quick-Order fuer eine IB-Aktie aufgeben: Symbol, Side, Quantity, Limit-Preis, Trailing-Stop-Amount.
+FR53: Chef kann aus dem Journal, Watchlist oder Trade-Drilldown eine Quick-Order bei IB aufgeben mit Asset-Class-Toggle Stock | Option. Stock: Symbol, Side, Quantity, Limit, fester Stop-Loss. Option (Single-Leg): Underlying, Side (Buy-To-Open / Sell-To-Open), Expiry, Strike, Right, Contracts, Limit, fester Stop-Loss auf Option-Preis. Bei Short-Options persistenter Warn-Banner "SHORT OPTION — Margin & Assignment-Risk".
 
-FR54: Das System zeigt vor Absendung eine Bestaetigungs-Zusammenfassung mit allen Order-Parametern. Die Bestaetigung erfordert einen expliziten Klick.
+FR54: Das System zeigt vor Absendung eine Bestaetigungs-Zusammenfassung mit allen Order-Parametern + Stop-Level + Risiko in $ + (bei Options) geschaetzter Margin via whatIfOrder. Bei Short-Options: pflichtige Margin-Acknowledge-Checkbox. Bestaetigung per expliziten Klick.
 
-FR55: Das System sendet die Order als Bracket Order via ib_async: Parent-Order (Limit) + Child-Order (Trailing Stop-Loss). Atomare Submission mit orderRef fuer Idempotenz.
+FR55: Das System sendet die Order als atomare Bracket Order via ib_async. Stock: Parent Limit + Child STP auf Aktien-Preis. Option: Contract wird via Option(symbol,expiry,strike,right,'SMART') qualifiziert, dann Parent Limit + Child STP auf Option-Preis. orderRef als Idempotenz-Key (Stock + Option).
 
-FR56: Das System trackt den Order-Status fuer IB-Quick-Orders (submitted / filled / partial / rejected / cancelled) und aktualisiert den zugehoerigen Journal-Eintrag.
+FR56: Das System trackt den Order-Status fuer IB-Quick-Orders (submitted / filled / partial / rejected / cancelled) und aktualisiert den zugehoerigen Journal-Eintrag. Fuer Option-Positionen wird automatisch der Tag near-assignment gesetzt + Warn-Toast bei Expiry < 3 Tage oder ITM.
 
-FR57: Bei Order-Platzierung ueber Quick-Order wird der Trade automatisch mit Strategie, Trigger-Quelle und Horizon getaggt (auto-tagged statt untagged).
+FR57: Bei Order-Platzierung ueber Quick-Order wird der Trade automatisch mit Strategie, Trigger-Quelle, Horizon (=swing) und Asset-Class (stock/option) getaggt (auto-tagged statt untagged).
 
-FR58: Das System unterscheidet im UI klar zwischen transienten Fehlern (Retry) und terminalen Fehlern (Aktion erforderlich). Bei transienten Fehlern automatischer Retry (max 3x, Backoff); bei terminalen Fehlern klare Fehlermeldung.
+FR58: Das System unterscheidet im UI klar zwischen transienten Fehlern (Retry, max 3x mit Backoff) und terminalen Fehlern (klare Fehlermeldung mit IB-Error-Code bei Options). Wenn TWS/Gateway nicht verbunden, zeigt das Formular einen Banner und deaktiviert das Absenden.
 
 ### NonFunctional Requirements
 
@@ -519,16 +519,16 @@ FR45: Epic 9 — Regime-Seite (F&G, VIX, pausierte Strategien)
 FR46: Epic 10 — Woechentlicher Gordon-Trend-Radar via MCP
 FR47: Epic 10 — Diff aktuell vs Vorwoche, HOT-Picks farblich kategorisiert
 FR48: Epic 10 — Strategie-Kandidat aus Gordon-HOT-Pick erstellen
-FR49: Epic 12 — Scheduled Jobs mit Logging (Flex Nightly, Regime, Gordon, Contract-Test, Backup)
-FR50: Epic 12 — Health-Widget (Broker-Status, MCP-Status, Job-Zeitstempel, Contract-Test)
+FR49: Epic 11 — Scheduled Jobs mit Logging (Flex Nightly, Regime, Gordon, Contract-Test, Backup)
+FR50: Epic 11 — Health-Widget (Broker-Status, MCP-Status, Job-Zeitstempel, Contract-Test)
 FR51: Epic 1 — Versionierte idempotente Migrations-Skripte mit schema_migrations
-FR52: Epic 12 — Taegliche PostgreSQL-Backups mit Recovery-Dokumentation
-FR53: Epic 11 — Quick-Order-Formular (Symbol, Side, Quantity, Limit, Trailing-Stop)
-FR54: Epic 11 — Bestaetigungs-Zusammenfassung vor Order-Absendung
-FR55: Epic 11 — Bracket-Order via ib_async (Limit + Trailing Stop-Loss, atomar)
-FR56: Epic 11 — Order-Status-Tracking fuer Quick-Orders
-FR57: Epic 11 — Auto-Tagging bei Quick-Order (Strategie, Trigger, Horizon)
-FR58: Epic 11 — Transient vs Terminal Fehler-Unterscheidung mit Auto-Retry
+FR52: Epic 11 — Taegliche PostgreSQL-Backups mit Recovery-Dokumentation
+FR53: Epic 12 — Quick-Order-Formular mit Asset-Class-Toggle (Stock | Option, Single-Leg Long/Short) inkl. fester Stop-Loss
+FR54: Epic 12 — Bestaetigungs-Zusammenfassung vor Absendung (Stock + Option), Margin-Check via whatIfOrder bei Short-Options mit Acknowledge-Checkbox
+FR55: Epic 12 — Atomare Bracket-Order via ib_async: Limit + fester STP (Aktien-Preis oder Option-Preis)
+FR56: Epic 12 — Order-Status-Tracking + Auto-Tag near-assignment bei Options (Expiry < 3d oder ITM)
+FR57: Epic 12 — Auto-Tagging bei Quick-Order (Strategie, Trigger, Horizon=swing, Asset-Class)
+FR58: Epic 12 — Transient vs Terminal Fehler-Unterscheidung inkl. TWS/Gateway-Offline-Check
 FR59: Epic 4 Story 4.6 — Command Palette (Ctrl+K) mit Fuzzy-Search
 FR60: Epic 4 Story 4.7 — CSV-Export der Journal-Ansicht
 FR61: Epic 4 Story 4.7 — Query-Presets (Star-Icon) und Command-Palette-Aufruf
@@ -577,13 +577,13 @@ Das System erzeugt taegliche Regime-Snapshots und pausiert bei Crash-Regimen aut
 Chef bekommt jeden Montag den aktuellen Gordon-Trend-Radar mit Wochen-Diff und kann aus HOT-Picks direkt Strategie-Kandidaten erstellen.
 **FRs:** FR46, FR47, FR48
 
-### Epic 11: IB Quick-Order
-Chef kann direkt aus ctrader Bracket-Orders (Limit + Trailing Stop-Loss) bei IB platzieren, mit Bestaetigungs-UI, Auto-Tagging und klarer Fehler-Unterscheidung (transient vs terminal).
-**FRs:** FR53, FR54, FR55, FR56, FR57, FR58
-
-### Epic 12: System-Health & Scheduled Operations
+### Epic 11: System-Health & Scheduled Operations
 Chef sieht den Systemzustand auf einen Blick (Broker-Status, MCP-Status, Job-Zeitstempel, Contract-Test, Backup-Status) und weiss, dass taegliche Backups und alle Scheduled Jobs zuverlaessig laufen.
 **FRs:** FR49, FR50, FR52
+
+### Epic 12: IB Swing-Order — Aktien & Single-Leg-Optionen
+Chef kann direkt aus ctrader Bracket-Orders bei IB platzieren — fuer Aktien (Limit + fester Stop-Loss) und fuer Single-Leg-Optionen (Long/Short Call/Put, Fokus auf Short-Verkauf) mit festem Stop auf den Option-Preis. Asset-Class-Toggle Stock | Option, Bestaetigungs-UI mit Margin-Warnung bei Short-Optionen, Auto-Tagging, Transient-vs-Terminal-Fehlerhandling.
+**FRs:** FR53, FR54, FR55, FR56, FR57, FR58
 
 ---
 
@@ -1705,97 +1705,11 @@ so that I can quickly act on trend intelligence without manual data entry.
 
 ---
 
-## Epic 11: IB Quick-Order
-
-Chef kann direkt aus ctrader Bracket-Orders (Limit + Trailing Stop-Loss) bei IB platzieren, mit Bestaetigungs-UI, Auto-Tagging und klarer Fehler-Unterscheidung (transient vs terminal).
-
-### Story 11.1: Quick-Order-Formular & Validierung
-
-As a Chef,
-I want a quick order form to place IB stock orders with trailing stops,
-so that I can trade directly from ctrader without switching to TWS.
-
-**Acceptance Criteria:**
-
-**Given** das Journal oder eine Watchlist
-**When** Chef "Quick Order" waehlt
-**Then** oeffnet sich ein Formular mit: Symbol (vorausgefuellt aus Kontext), Side (Buy/Sell), Quantity, Limit-Preis, Trailing-Stop-Amount (absolut $ oder prozentual) (FR53)
-
-**Given** das Quick-Order-Formular
-**When** inspiziert
-**Then** hat es <= 6 Felder mit Auto-Focus, Tab-Navigation und Inline-Validierung auf Blur (UX-DR58, UX-DR59, UX-DR62)
-
-**Given** ein ungueltige Eingabe (z.B. negativer Preis)
-**When** das Feld den Fokus verliert
-**Then** erscheint ein roter Rahmen + Fehlertext unterhalb (UX-DR59)
-
-### Story 11.2: Bestaetigungs-UI & Bracket-Order-Submission
-
-As a Chef,
-I want a confirmation screen before order submission and atomic bracket order execution,
-so that I can review all parameters and have automatic stop-loss protection from the start.
-
-**Acceptance Criteria:**
-
-**Given** ein ausgefuelltes Quick-Order-Formular
-**When** "Weiter" geklickt wird
-**Then** zeigt eine Bestaetigungs-Zusammenfassung: Symbol, Seite, Menge, Limit, Trailing-Stop-Betrag, berechnetes initiales Stop-Level, geschaetztes Risiko in $ — alles in einem Viewport ohne Scrollen (FR54, NFR-R3b)
-
-**Given** die Bestaetigung
-**When** der explizite Bestaetigungs-Klick erfolgt
-**Then** sendet das System eine Bracket Order via ib_async: Parent (Limit) + Child (Trailing Stop-Loss), atomar (transmit=False auf Parent, transmit=True auf letzter Child) mit einer ctrader-generierten orderRef (FR55)
-
-**Given** die Order
-**When** gesendet
-**Then** wird die orderRef als Idempotenz-Schluessel verwendet; ein Retry kann keine Duplikat-Order erzeugen (NFR-R3a)
-
-**Given** keine Bestaetigung (One-Click)
-**When** das Formular angezeigt wird
-**Then** ist keine One-Click-Platzierung moeglich — der Bestaetigungs-Schritt ist verpflichtend (FR54)
-
-### Story 11.3: Order-Status-Tracking & Auto-Tagging
-
-As a Chef,
-I want my quick orders to be automatically tracked and tagged in the journal,
-so that I don't need to manually enter trade details after placing an order.
-
-**Acceptance Criteria:**
-
-**Given** eine platzierte Quick-Order
-**When** der Status sich aendert
-**Then** wird er im Journal aktualisiert: submitted / filled / partial / rejected / cancelled (FR56)
-
-**Given** eine Quick-Order bei Platzierung
-**When** der Trade im Journal erstellt wird
-**Then** wird er automatisch mit Strategie, Trigger-Quelle und Horizon aus dem Quick-Order-Formular getaggt (auto-tagged, kein Post-hoc-Tagging noetig) (FR57)
-
-### Story 11.4: Fehler-Handling — Transient vs Terminal
-
-As a Chef,
-I want clear distinction between retryable and fatal order errors,
-so that I know when to wait and when to act.
-
-**Acceptance Criteria:**
-
-**Given** ein transienter Fehler (Netzausfall, TWS-Reconnect)
-**When** die Order-Submission fehlschlaegt
-**Then** wird automatisch ein Retry ausgefuehrt (max 3x, mit Exponential Backoff) (FR58)
-
-**Given** ein terminaler Fehler (Margin-Fehler, ungueltiges Symbol, Markt geschlossen)
-**When** die Order-Submission fehlschlaegt
-**Then** sieht Chef eine klare Fehlermeldung als persistierender Error-Toast (rot, manuell zu schliessen) mit spezifischem Grund (FR58, UX-DR52)
-
-**Given** einen transienten Fehler waehrend des Retry
-**When** der Retry erfolgreich ist
-**Then** wird ein Success-Toast angezeigt und der Order-Status normal weiterverfolgt
-
----
-
-## Epic 12: System-Health & Scheduled Operations
+## Epic 11: System-Health & Scheduled Operations
 
 Chef sieht den Systemzustand auf einen Blick (Broker-Status, MCP-Status, Job-Zeitstempel, Contract-Test, Backup-Status) und weiss, dass taegliche Backups und alle Scheduled Jobs zuverlaessig laufen.
 
-### Story 12.1: Scheduled-Jobs-Framework & Ausfuehrungs-Logging
+### Story 11.1: Scheduled-Jobs-Framework & Ausfuehrungs-Logging
 
 As a Chef,
 I want all scheduled jobs to run reliably and log their execution,
@@ -1819,7 +1733,7 @@ so that I can trust that background processes are working correctly.
 **When** der Fehler geloggt wird
 **Then** enthaelt der Log-Eintrag die error_message und der naechste planmaessige Lauf wird nicht blockiert
 
-### Story 12.2: Health-Widget & System-Status-Anzeige
+### Story 11.2: Health-Widget & System-Status-Anzeige
 
 As a Chef,
 I want a health dashboard showing system status at a glance,
@@ -1843,7 +1757,7 @@ so that I can quickly verify all integrations and background processes are worki
 **When** geladen
 **Then** zeigt sie ausserdem: Taxonomie-Editor, MCP-Konfigurations-Uebersicht, Audit-Log-Ansicht, DB-Backup-Download-Link (UX-DR80)
 
-### Story 12.3: Taegliche PostgreSQL-Backups & Recovery
+### Story 11.3: Taegliche PostgreSQL-Backups & Recovery
 
 As a Chef,
 I want daily database backups with documented recovery,
@@ -1870,3 +1784,115 @@ so that my trading data is protected against data loss.
 **Given** die Recovery-Prozedur
 **When** im Project-Knowledge dokumentiert
 **Then** beschreibt sie Schritt-fuer-Schritt wie ein Backup wiederhergestellt wird (FR52)
+
+---
+
+## Epic 12: IB Swing-Order — Aktien & Single-Leg-Optionen
+
+Chef kann direkt aus ctrader Bracket-Orders bei Interactive Brokers platzieren — fuer Aktien (Limit + fester Stop-Loss) und fuer Single-Leg-Optionen (Long/Short Call/Put mit festem Stop auf den Option-Preis). Fokus: Swing-Trading, insbesondere Short-Options-Verkauf. Bestaetigungs-UI mit Margin-Warnung bei Short-Optionen, Auto-Tagging ins Journal, Transient-vs-Terminal-Fehlerhandling. Voraussetzung: Trader Workstation oder IB Gateway laeuft lokal, API-Socket erreichbar (Port 7496/7497/4001/4002).
+
+### Story 12.1: Quick-Order-Formular — Asset-Class-Toggle (Stock | Option)
+
+As a Chef,
+I want a quick order form with an asset class toggle so that I can place stock or single-leg option orders without switching to TWS.
+
+**Acceptance Criteria:**
+
+**Given** das Journal, die Watchlist oder ein Trade-Drilldown
+**When** Chef "Quick Order" waehlt
+**Then** oeffnet sich ein Formular mit Asset-Class-Toggle **Stock | Option** (Tab-UI, Keyboard `S`/`O`) (FR53)
+
+**Given** den Stock-Modus
+**When** das Formular inspiziert wird
+**Then** enthaelt es: Symbol (vorausgefuellt aus Kontext), Side (Buy/Sell), Quantity, Limit-Preis, **fester Stop-Loss** (absolut $ oder prozentual vom Limit) — <= 6 Felder, Auto-Focus, Tab-Navigation, Inline-Validierung on Blur (FR53, UX-DR58/59/62)
+
+**Given** den Option-Modus
+**When** das Formular inspiziert wird
+**Then** enthaelt es: Underlying (Symbol, vorausgefuellt), Side (**Buy-To-Open / Sell-To-Open**), Expiry (ISO-Date, Dropdown aus Chain), Strike (Dropdown aus Chain), Right (Call/Put), Contracts (Quantity), Limit pro Contract, **fester Stop-Loss auf den Option-Preis** (absolut $ oder prozentual) — <= 8 Felder (FR53)
+
+**Given** der Option-Modus
+**When** Expiry oder Strike gewaehlt
+**Then** wird der Wert gegen die IB-Option-Chain via `ib_async.reqContractDetails()` validiert; ungueltige Kombinationen zeigen roter Rahmen + Fehlertext (UX-DR59)
+
+**Given** eine Short-Option (Side = Sell-To-Open)
+**When** das Formular aktiv ist
+**Then** erscheint ein **persistenter Warn-Banner** ueber dem Formular: "SHORT OPTION — Margin-Anforderung & Assignment-Risk" — rot, nicht schliessbar bis Asset-Class geaendert (FR53)
+
+**Given** eine ungueltige Eingabe (negativer Preis, Stop hinter Limit, Expiry < 5 DTE)
+**When** das Feld den Fokus verliert
+**Then** erscheint ein roter Rahmen + Fehlertext unterhalb (UX-DR59)
+
+### Story 12.2: Bestaetigungs-UI & Atomare Bracket-Order-Submission
+
+As a Chef,
+I want a mandatory confirmation screen with fixed stop-loss bracket submission for both stocks and options, so that every order has automatic stop protection and I review all parameters before sending.
+
+**Acceptance Criteria:**
+
+**Given** ein ausgefuelltes Quick-Order-Formular (Stock oder Option)
+**When** "Weiter" geklickt wird
+**Then** zeigt eine Bestaetigungs-Zusammenfassung alle Parameter + berechnetes Stop-Level + geschaetztes Risiko in $ + (bei Options) geschaetzte IB-**Margin-Anforderung** via `whatIfOrder()` — alles in einem Viewport ohne Scrollen (FR54, NFR-R3b)
+
+**Given** eine Short-Option-Order
+**When** die Bestaetigung angezeigt wird
+**Then** erfordert der Bestaetigungs-Screen eine explizite **Margin-Acknowledge-Checkbox** "Ich verstehe Margin-Anforderung und Assignment-Risk" (pflicht, ohne Haken ist "Absenden" disabled) (FR54)
+
+**Given** eine bestaetigte Stock-Order
+**When** der Bestaetigungs-Klick erfolgt
+**Then** sendet das System eine Bracket Order via `ib_async`: Parent (Limit, `transmit=False`) + Child (**fester STP-Stop auf Aktien-Preis**, `transmit=True`), atomar, mit ctrader-generierter `orderRef` (FR55)
+
+**Given** eine bestaetigte Option-Order
+**When** der Bestaetigungs-Klick erfolgt
+**Then** wird zuerst der Option-Contract via `ib_async.Option(symbol, expiry, strike, right, 'SMART')` qualifiziert, dann eine Bracket Order gesendet: Parent (Limit auf Contract, `transmit=False`) + Child (**fester STP-Stop auf Option-Preis**, `transmit=True`), atomar, mit `orderRef` (FR55)
+
+**Given** die Order (Stock oder Option)
+**When** gesendet
+**Then** wird die `orderRef` als Idempotenz-Schluessel verwendet; ein Retry mit identischer `orderRef` kann keine Duplikat-Order erzeugen (NFR-R3a)
+
+**Given** keine Bestaetigung (One-Click)
+**When** das Formular angezeigt wird
+**Then** ist keine One-Click-Platzierung moeglich — der Bestaetigungs-Schritt ist verpflichtend (FR54)
+
+### Story 12.3: Order-Status-Tracking & Auto-Tagging
+
+As a Chef,
+I want my quick orders automatically tracked and tagged in the journal,
+so that I don't need to manually enter trade details after placing an order.
+
+**Acceptance Criteria:**
+
+**Given** eine platzierte Quick-Order (Stock oder Option)
+**When** der Status sich aendert
+**Then** wird er im Journal aktualisiert: submitted / filled / partial / rejected / cancelled (FR56)
+
+**Given** eine Option-Position mit Fill
+**When** die Expiry naeher als 3 Kalendertage ist ODER die Position ITM geht
+**Then** wird automatisch der Tag `near-assignment` gesetzt und ein Warn-Toast angezeigt (FR56)
+
+**Given** eine Quick-Order bei Platzierung
+**When** der Trade im Journal erstellt wird
+**Then** wird er automatisch mit Strategie, Trigger-Quelle, Horizon (=`swing`) und Asset-Class (Stock/Option) getaggt — auto-tagged, kein Post-hoc-Tagging noetig (FR57)
+
+### Story 12.4: Fehler-Handling — Transient vs Terminal
+
+As a Chef,
+I want clear distinction between retryable and fatal order errors,
+so that I know when to wait and when to act.
+
+**Acceptance Criteria:**
+
+**Given** ein transienter Fehler (Netzausfall, TWS-Reconnect, Gateway-Restart)
+**When** die Order-Submission fehlschlaegt
+**Then** wird automatisch ein Retry ausgefuehrt (max 3x, mit Exponential Backoff) (FR58)
+
+**Given** ein terminaler Fehler (Margin-Fehler, ungueltiges Symbol, Markt geschlossen, Option nicht mehr handelbar, nicht genuegend Buying Power)
+**When** die Order-Submission fehlschlaegt
+**Then** sieht Chef eine klare Fehlermeldung als persistierender Error-Toast (rot, manuell zu schliessen) mit spezifischem Grund und (bei Options) IB-Error-Code (FR58, UX-DR52)
+
+**Given** einen transienten Fehler waehrend des Retry
+**When** der Retry erfolgreich ist
+**Then** wird ein Success-Toast angezeigt und der Order-Status normal weiterverfolgt
+
+**Given** TWS/Gateway nicht erreichbar
+**When** Chef das Quick-Order-Formular oeffnet
+**Then** erscheint ein Banner "IB TWS/Gateway nicht verbunden — Start TWS oder Gateway auf Port 7497/4002" und das Absenden ist disabled (FR58, UX-DR52)

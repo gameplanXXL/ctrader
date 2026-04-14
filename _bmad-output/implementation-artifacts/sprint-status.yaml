@@ -14,12 +14,28 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T06:00'
+last_updated: '2026-04-14T18:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
   (order_service.py statt quick_order.py, trades-Tabellen-Erweiterung statt ib_quick_orders,
   clients/ib.py statt services/ib_order.py, Kill-Switch-Exemption dokumentiert).
+
+  SCOPE-UPDATE 2026-04-14 (Chef-Request via PM-John):
+  - Epic 11 ↔ Epic 12 getauscht. Neues Epic 11 = System-Health (vormals 12),
+    neues Epic 12 = IB Swing-Order (vormals 11, ans Ende der Pipeline verschoben).
+  - Epic 12 inhaltlich erweitert: zusätzlich zu Aktien nun auch Single-Leg-Optionen
+    (Long/Short Call/Put, Fokus Short-Verkauf), FESTER Stop-Loss (nicht Trailing)
+    auf Aktien- oder Option-Preis. Margin-Check via whatIfOrder bei Short-Options,
+    Auto-Tag `near-assignment` bei Expiry<3d oder ITM, Margin-Acknowledge-Checkbox
+    pflicht bei Sell-To-Open.
+  - PRD, epics.md, architecture.md, ux-design-specification.md sind konsistent
+    auf die neue Struktur gebracht. Story-Files (11-x-*.md, 12-x-*.md) im
+    Filesystem NICHT umbenannt — wird bei Epic-Implementation via
+    bmad-create-story neu generiert wenn Epic 12 tatsächlich an die Reihe
+    kommt (nach Epic 11 System-Health).
+  - Voraussetzung für Epic 12: TWS oder IB Gateway läuft lokal, API-Socket
+    erreichbar (Port 7496/7497/4001/4002).
 
   Epic 2 Code-Review + Tranche A Patches am 2026-04-13 abgeschlossen:
   - 8 HIGH + 3 MEDIUM Patches appliziert (H1-H8, M1, M2, M6)
