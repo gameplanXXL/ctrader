@@ -8,6 +8,7 @@ proposal lands.
 
 from __future__ import annotations
 
+import json
 from decimal import Decimal
 
 import asyncpg
@@ -70,11 +71,19 @@ SELECT id, name, asset_class, horizon::text, typical_holding_period,
 
 _STATUS_SQL = "SELECT status::text FROM strategies WHERE id = $1"
 
-_UPDATE_STATUS_SQL = """
+# Code-review H2 / BH-1 / EC-26-27: atomic compare-and-swap UPDATE so
+# two concurrent toggle clicks can't race past each other and a
+# terminal `retired` can't be silently revived. The `AND status = $3`
+# guard means the UPDATE affects 0 rows (RETURNING NULL) if another
+# request has already flipped the status — we raise
+# `StrategyTransitionError` so the caller can 409 and the UI shows the
+# actual current state.
+_UPDATE_STATUS_CAS_SQL = """
 UPDATE strategies
    SET status     = $1::strategy_status,
        updated_at = NOW()
  WHERE id = $2
+   AND status    = $3::strategy_status
 RETURNING status::text
 """
 
@@ -82,11 +91,14 @@ RETURNING status::text
 def _row_to_strategy(row: asyncpg.Record) -> Strategy:
     trigger_sources_raw = row["trigger_sources"]
     if isinstance(trigger_sources_raw, str):
-        import json
-
         try:
             trigger_sources_raw = json.loads(trigger_sources_raw)
         except ValueError:
+            logger.warning(
+                "strategy.malformed_trigger_sources",
+                strategy_id=row["id"],
+                value=trigger_sources_raw,
+            )
             trigger_sources_raw = []
     if not isinstance(trigger_sources_raw, list):
         trigger_sources_raw = []
@@ -144,13 +156,24 @@ async def update_status(
     strategy_id: int,
     new_status: StrategyStatus,
 ) -> StrategyStatusTransition:
-    """Lifecycle-aware status update.
+    """Lifecycle-aware status update via atomic compare-and-swap.
 
     Story 6.1 AC #4 / FR38 transitions:
     - active → paused / retired
     - paused → active / retired
     - retired → (terminal)
+
+    Code-review H2: uses a single `UPDATE ... WHERE id = $2 AND status
+    = $3 RETURNING` statement so two concurrent clicks can't
+    interleave. The FSM gate still runs in Python (fewer round-trips,
+    clearer error messages), but the final write is conditional on
+    the stored status matching the caller's read — if it doesn't, the
+    UPDATE returns no rows and we raise `StrategyTransitionError`
+    with the actual current state.
     """
+
+    if not isinstance(new_status, StrategyStatus):
+        raise TypeError(f"new_status must be StrategyStatus, got {type(new_status).__name__}")
 
     current_raw = await conn.fetchval(_STATUS_SQL, strategy_id)
     if current_raw is None:
@@ -160,7 +183,19 @@ async def update_status(
         return StrategyStatusTransition(id=strategy_id, old_status=current, new_status=new_status)
     if not can_transition(current, new_status):
         raise StrategyTransitionError(f"cannot transition {current.value} → {new_status.value}")
-    await conn.execute(_UPDATE_STATUS_SQL, new_status.value, strategy_id)
+
+    updated_raw = await conn.fetchval(
+        _UPDATE_STATUS_CAS_SQL, new_status.value, strategy_id, current.value
+    )
+    if updated_raw is None:
+        # Compare-and-swap lost — another request flipped the status
+        # between our read and our write. Re-read to report the truth.
+        actual_raw = await conn.fetchval(_STATUS_SQL, strategy_id)
+        actual = StrategyStatus(actual_raw) if actual_raw else current
+        raise StrategyTransitionError(
+            f"cannot transition {current.value} → {new_status.value}: "
+            f"status was concurrently changed to {actual.value}"
+        )
     logger.info(
         "strategy.status_updated",
         strategy_id=strategy_id,
@@ -171,7 +206,12 @@ async def update_status(
 
 
 async def toggle_status(conn: asyncpg.Connection, strategy_id: int) -> StrategyStatusTransition:
-    """One-click status toggle (active ↔ paused, retired stays)."""
+    """One-click status toggle (active ↔ paused, retired stays).
+
+    Retired is terminal — a click on a retired strategy is a no-op
+    that returns same-state. Callers should suppress the success
+    toast in that case (code-review M7 / EC-6).
+    """
 
     current_raw = await conn.fetchval(_STATUS_SQL, strategy_id)
     if current_raw is None:
@@ -195,6 +235,69 @@ async def is_strategy_active(conn: asyncpg.Connection, strategy_id: int) -> bool
     return status_raw == StrategyStatus.ACTIVE.value
 
 
+# Code-review H1 / EC-1: when the tagging form posts a `strategy`
+# value, we have to resolve it back to a `strategies.id` so the
+# trade row's FK column can be populated. Without this, the strategy
+# list aggregation (`strategy_metrics.list_strategies_with_metrics`)
+# stays empty even though Chef tagged 50 trades.
+#
+# The dropdown source adapter (`app/services/strategy_source.py`)
+# emits either:
+#   - taxonomy entries (`mean_reversion`, …) when the strategies table
+#     is empty (pre-Epic-6 fallback) — no DB row exists, returns None
+#   - real strategy rows as `(id::text, name)` once Epic 6 lands —
+#     resolves to int(id)
+#
+# We probe BOTH the integer-id path AND the name-match path so a
+# tagging POST can carry either a numeric id or a human-readable name.
+_RESOLVE_BY_NAME_SQL = "SELECT id FROM strategies WHERE name = $1 LIMIT 1"
+
+
+async def resolve_strategy_id(conn: asyncpg.Connection, value: str | int | None) -> int | None:
+    """Best-effort `value → strategies.id` resolver.
+
+    - `None` / empty → None
+    - integer → return as-is if a row exists
+    - string of digits → integer path
+    - other string → look up by `name`
+    - no match → None (caller can leave the FK NULL)
+    """
+
+    if value is None or value == "":
+        return None
+    if isinstance(value, int):
+        exists = await conn.fetchval("SELECT 1 FROM strategies WHERE id = $1", value)
+        return value if exists else None
+
+    text = str(value).strip()
+    if not text:
+        return None
+    if text.isdigit():
+        candidate = int(text)
+        exists = await conn.fetchval("SELECT 1 FROM strategies WHERE id = $1", candidate)
+        if exists:
+            return candidate
+    # Fall back to name lookup so a taxonomy id like "mean_reversion"
+    # also works once Chef has created a same-named strategy.
+    return await conn.fetchval(_RESOLVE_BY_NAME_SQL, text)
+
+
+_LINK_TRADE_SQL = """
+UPDATE trades
+   SET strategy_id = $1,
+       updated_at  = NOW()
+ WHERE id = $2
+"""
+
+
+async def link_trade_to_strategy(
+    conn: asyncpg.Connection, trade_id: int, strategy_id: int | None
+) -> None:
+    """Set `trades.strategy_id` for one trade. None unlinks."""
+
+    await conn.execute(_LINK_TRADE_SQL, strategy_id, trade_id)
+
+
 # ---------------------------------------------------------------------------
 # Strategy notes (Story 6.4)
 # ---------------------------------------------------------------------------
@@ -214,12 +317,23 @@ SELECT id, strategy_id, content, created_at
 """
 
 
+NOTE_MAX_LENGTH = 2000
+
+
 async def add_note(conn: asyncpg.Connection, strategy_id: int, content: str) -> StrategyNote:
-    """Append a note to the strategy's history. Append-only."""
+    """Append a note to the strategy's history. Append-only.
+
+    Code-review M3 / M4 / BH-13 / EC-25: enforce both empty AND
+    over-length checks server-side. The HTML form has `maxlength`
+    but a scripted POST bypasses it, and the DB CHECK only catches
+    `length(content) > 0`, not whitespace-only or oversized payloads.
+    """
 
     cleaned = content.strip()
     if not cleaned:
         raise ValueError("note content must not be empty")
+    if len(cleaned) > NOTE_MAX_LENGTH:
+        raise ValueError(f"note content exceeds {NOTE_MAX_LENGTH} characters")
     row = await conn.fetchrow(_NOTE_INSERT_SQL, strategy_id, cleaned)
     return StrategyNote(
         id=int(row["id"]),

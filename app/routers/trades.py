@@ -309,6 +309,25 @@ async def post_tag(request: Request, trade_id: int):
     try:
         async with db_pool.acquire() as conn:
             await tag_trade(conn, trade_id, spec)
+            # Code-review H1 / EC-1: resolve the form's strategy field
+            # back to a `strategies.id` and write it onto the trade row
+            # so the Epic 6 strategy-list aggregation actually sees
+            # this trade. Pre-Epic-6 fallback (taxonomy ids) returns
+            # None and leaves the FK NULL — same as before.
+            try:
+                from app.services.strategy import (
+                    link_trade_to_strategy,
+                    resolve_strategy_id,
+                )
+
+                resolved_id = await resolve_strategy_id(conn, spec.strategy)
+                await link_trade_to_strategy(conn, trade_id, resolved_id)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "tagging.link_strategy_failed",
+                    trade_id=trade_id,
+                    error=str(exc),
+                )
             # Code-review BH-9: protect next_untagged_trade — the tag
             # has already been applied, we must not 500 the user over
             # a read failure. Worst case: no jump link.

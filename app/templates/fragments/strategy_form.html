@@ -5,7 +5,12 @@
 
   POSTs to /strategies and redirects to ?selected=<new_id> on success.
 #}
-<form method="POST" action="/strategies" class="strategy-form">
+{# Code-review M6 / BH-27 / EC-22: hx-post lets the server send
+   `HX-Redirect` + `HX-Trigger` headers; HTMX follows the redirect
+   AND fires the toast. A plain `<form method="POST">` would discard
+   the trigger because the browser navigation drops the response
+   headers. #}
+<form hx-post="/strategies" class="strategy-form">
   <h3 class="strategy-form__title">Neue Strategie</h3>
 
   <div class="strategy-form__row">

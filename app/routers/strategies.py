@@ -17,7 +17,6 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import RedirectResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import ValidationError as PydanticValidationError
 
@@ -82,6 +81,7 @@ async def strategies_page(
     horizon_rows: list = []
     detail = None
     sparkline_svg = ""
+    db_error = False  # Code-review H6 / BH-9 / EC-22
 
     if db_pool is not None and hasattr(db_pool, "acquire"):
         try:
@@ -96,7 +96,8 @@ async def strategies_page(
                             aria_label="Cumulative P&L",
                         )
         except Exception as exc:  # noqa: BLE001
-            logger.warning("strategies_page.db_error", error=str(exc))
+            logger.exception("strategies_page.db_error", error=str(exc))
+            db_error = True
 
     context: dict[str, Any] = {
         "active_route": "strategies",
@@ -109,6 +110,7 @@ async def strategies_page(
         "sparkline_svg": sparkline_svg,
         "group_by_horizon": group_by_horizon,
         "taxonomy": get_taxonomy(),
+        "db_error": db_error,
     }
     return templates.TemplateResponse(request, "pages/strategies.html", context)
 
@@ -141,9 +143,13 @@ async def strategy_detail_fragment(request: Request, strategy_id: int):
 async def create_strategy_route(request: Request):
     """Story 6.1 — POST /strategies.
 
-    Accepts either form-encoded or JSON payload. Returns a redirect
-    to the strategy list on success, or re-renders the form fragment
-    with the validation error on 422.
+    Accepts form-encoded payloads. Returns a redirect to the strategy
+    list on success, or re-renders the form fragment with the
+    validation error on 422 / 409.
+
+    Code-review M1 / BH-10: docstring no longer claims JSON support
+    (we only handle `request.form()`). A future JSON path can land
+    when an external API client needs it.
     """
 
     form = await request.form()
@@ -168,17 +174,38 @@ async def create_strategy_route(request: Request):
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
     db_pool = await _require_pool(request)
+    import asyncpg as _asyncpg
+
     async with db_pool.acquire() as conn:
         try:
             strategy = await create_strategy(conn, payload)
+        except _asyncpg.UniqueViolationError as exc:
+            # Code-review H3 / BH-4 / EC-15: name UNIQUE → 409 with a
+            # readable message instead of a 500 that just says
+            # "could not create strategy".
+            logger.warning(
+                "strategy.duplicate_name",
+                name=payload.name,
+                error=str(exc),
+            )
+            raise HTTPException(
+                status_code=409,
+                detail=f"Strategie '{payload.name}' existiert bereits",
+            ) from None
         except Exception as exc:  # noqa: BLE001
             logger.warning("strategy.create_failed", error=str(exc))
             raise HTTPException(status_code=500, detail="could not create strategy") from None
 
-    return RedirectResponse(
-        url=f"/strategies?selected={strategy.id}",
-        status_code=302,
+    # Code-review M6 / BH-27 / EC-22: HX-Redirect lets HTMX navigate
+    # the browser AND deliver the showToast trigger. A plain
+    # RedirectResponse would discard the trigger because browser
+    # navigation drops response headers.
+    from fastapi.responses import Response
+
+    return Response(
+        status_code=200,
         headers={
+            "HX-Redirect": f"/strategies?selected={strategy.id}",
             "HX-Trigger": json.dumps(
                 {
                     "showToast": {
@@ -186,7 +213,7 @@ async def create_strategy_route(request: Request):
                         "variant": "success",
                     }
                 }
-            )
+            ),
         },
     )
 
@@ -201,14 +228,17 @@ async def post_status(request: Request, strategy_id: int):
     """
 
     form = await request.form()
-    target_raw = form.get("status")
+    # Code-review M2 / BH-11: normalize the form value so an empty
+    # string or whitespace-only triggers the toggle path instead of
+    # bouncing off the enum coercion with a 422.
+    target_raw = (str(form.get("status") or "")).strip() or None
     db_pool = await _require_pool(request)
 
     try:
         async with db_pool.acquire() as conn:
             if target_raw:
                 try:
-                    target = StrategyStatus(str(target_raw))
+                    target = StrategyStatus(target_raw)
                 except ValueError:
                     raise HTTPException(status_code=422, detail="invalid target status") from None
                 transition = await update_status(conn, strategy_id, target)
@@ -220,20 +250,25 @@ async def post_status(request: Request, strategy_id: int):
     except StrategyTransitionError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
 
+    # Code-review M7 / EC-6: suppress the success toast on a no-op
+    # transition (toggle on retired, or `update_status` to current
+    # state). The badge still re-renders so HTMX has a swap target.
+    headers: dict[str, str] = {}
+    if transition.old_status != transition.new_status:
+        headers["HX-Trigger"] = json.dumps(
+            {
+                "showToast": {
+                    "message": f"Status → {transition.new_status.value}",
+                    "variant": "success",
+                }
+            }
+        )
+
     return templates.TemplateResponse(
         request,
         "fragments/status_badge.html",
         {"strategy": strategy, "interactive": True},
-        headers={
-            "HX-Trigger": json.dumps(
-                {
-                    "showToast": {
-                        "message": f"Status → {transition.new_status.value}",
-                        "variant": "success",
-                    }
-                }
-            )
-        },
+        headers=headers,
     )
 
 

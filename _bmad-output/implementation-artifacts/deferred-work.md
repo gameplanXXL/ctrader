@@ -198,3 +198,51 @@ This file is append-only — never delete entries, only mark them done.
 - **D140** `FundamentalAssessment.thesis` has no max_length — a rogue MCP could submit multi-MB text. Add a cap. *Source: EC-42*
 - **D141** `FundamentalResult.model_config frozen=True` doesn't protect nested `extra` dict. Use `MappingProxyType` when freeze matters. *Source: EC-36*
 - **D142** Future-dated `cached_at` &gt; 5s logs no warning — just returns the anomaly phrase. Add structlog line. *Source: BH-7 / H8 follow-up*
+
+---
+
+## Deferred from: code review of Epic 6 (Stories 6.1–6.5) — 2026-04-14
+
+### Performance / scaling
+- **D143** `list_strategies_with_metrics` loads every strategy-linked trade into Python (no LIMIT). At 50k+ trades it'll bite NFR-P1. Replace the Python aggregation with a SQL `GROUP BY strategy_id` returning sums/counts; pull individual trades only for the selected detail. *Source: BH-5 / EC-39*
+- **D144** `strategies_page?selected=` triggers ~3 full-table scans (list, detail, horizon). Combine into a single fetch + Python re-grouping. *Source: BH-6 / EC-38*
+- **D145** Per-strategy `_TRADES_BY_STRATEGY_SQL` lacks a `(strategy_id, opened_at)` composite index. *Source: BH-16*
+
+### Accessibility
+- **D146** `<tr role="button" tabindex="0">` rows have no Enter/Space keydown handler. *Source: BH-24, EC-29*
+
+### Architectural follow-ups
+- **D147** `StrategyFacet` (Epic 4 placeholder) still reads from `trigger_spec->>'strategy'` instead of joining the new `strategies` table. The H1 fix means the JSONB path still works, but the facet should switch to JOIN-and-name once the strategies table is canonical. *Source: EC-2*
+- **D148** Migration 007 doesn't backfill existing trades — every pre-Epic-6 trade has `strategy_id = NULL`. Provide a backfill script that matches `trigger_spec->>'strategy'` to `strategies.name`. *Source: EC-3*
+- **D149** `ON DELETE SET NULL` on `trades.strategy_id` silently orphans historical trades. *Source: EC-4*
+- **D150** No reverse migration / DOWN script for 007. *Source: BH-31*
+- **D151** `CREATE INDEX ... ON trades (strategy_id)` is not `CONCURRENTLY` — locks trades on rebuild. *Source: BH-32*
+- **D152** `_LIST_SQL ORDER BY CASE status::text` brittle if a future enum label is added. *Source: BH-33*
+- **D153** No `updated_at` trigger on strategies. *Source: EC-43*
+- **D154** `ALTER TABLE trades ADD COLUMN strategy_id` doesn't validate the FK retroactively. *Source: EC-44*
+
+### Aggregation / metrics
+- **D155** Drawdown semantics document the peak-to-trough-from-first-cumulative convention from Epic 4 H3. *Source: BH-7, BH-8, EC-10*
+- **D156** "0% winrate" vs "n/a" for all-open strategies — render em-dash. *Source: EC-9*
+- **D157** `_followed_breakdown` silently drops trades where `trigger_spec.followed` is missing. No "unknown" bucket. *Source: BH-20, EC-11*
+- **D158** `_aggregate_one` and `_followed_breakdown` re-normalize pnl twice per trade. *Source: EC-12*
+- **D159** `horizon_aggregates` Python dict iteration relies on SQL sort stability. *Source: EC-14*
+
+### Form / router
+- **D160** Validation 422 doesn't re-render the form with values populated. *Source: EC-21*
+- **D161** Trigger-sources field collected on create but never displayed in the detail fragment. *Source: EC-37*
+- **D162** `typical_holding_period` collected but never displayed. *Source: EC-36*
+- **D163** Raw enum strings rendered in templates (`swing_short`). Add taxonomy label lookup. *Source: EC-35*
+- **D164** `Decimal → float` conversions in templates — precision loss on large values. *Source: BH-31, EC-31*
+
+### Status badge / UI
+- **D165** Retired strategy badge still rendered as a `<button>` — Chef can click but nothing happens. *Source: EC-7*
+- **D166** Inline `<style>` blocks in macro files emit on import; HTMX swaps re-inject. Cross-epic CSS extraction follow-up. *Source: BH-25, BH-26, EC-32*
+- **D167** Strategy detail trade table renders open trades with `pnl=0` styled as neutral — visually identical to closed-at-breakeven. *Source: BH-32, EC-33*
+
+### Tests
+- **D168** No integration tests for any strategy router endpoint. *Source: EC-45*
+- **D169** No unit tests for `list_strategies_with_metrics`, `get_strategy_detail`, `_aggregate_one`, `_followed_breakdown`. *Source: EC-46*
+- **D170** `is_strategy_active` has no unit test backed by a real DB cycle. *Source: EC-47, EC-50*
+- **D171** No test exercising the empty-state path of `strategies.html`. *Source: EC-48*
+- **D172** No test for duplicate-name 409 / invalid-status 422 / missing-field 422 unhappy paths. *Source: EC-49*

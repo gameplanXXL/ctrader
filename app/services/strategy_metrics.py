@@ -304,25 +304,36 @@ class HorizonAggregate:
         return float(self.max_drawdown)
 
 
+# Code-review M5 / BH-17 / EC-13: LEFT JOIN so a horizon with
+# strategies but no trades still surfaces as a "0 trades" row in the
+# header table. Trade-side columns are NULL for such horizons; we
+# drop those synthetic rows before passing to `_aggregate_one`.
 _HORIZON_JOIN_SQL = """
 SELECT s.horizon::text AS horizon, t.id, t.strategy_id, t.opened_at, t.closed_at,
        t.side, t.quantity, t.entry_price, t.exit_price, t.pnl, t.fees
   FROM strategies s
-  JOIN trades t ON t.strategy_id = s.id
- ORDER BY s.horizon, t.opened_at ASC, t.id ASC
+  LEFT JOIN trades t ON t.strategy_id = s.id
+ ORDER BY s.horizon, t.opened_at ASC NULLS LAST, t.id ASC NULLS LAST
 """
 
 
 async def horizon_aggregates(
     conn: asyncpg.Connection,
 ) -> list[HorizonAggregate]:
-    """Story 6.3 AC #4 / FR40: aggregate per horizon across all strategies."""
+    """Story 6.3 AC #4 / FR40: aggregate per horizon across all strategies.
+
+    Code-review M5: LEFT JOIN so horizons with zero trades still
+    appear (as "0 trades / $0.00 / 0% / 0$").
+    """
 
     rows = await conn.fetch(_HORIZON_JOIN_SQL)
     by_horizon: dict[str, list[dict[str, Any]]] = {}
     for row in rows:
         horizon = str(row["horizon"])
-        by_horizon.setdefault(horizon, []).append(dict(row))
+        bucket = by_horizon.setdefault(horizon, [])
+        # Skip the synthetic LEFT JOIN row with NULL trade columns.
+        if row["id"] is not None:
+            bucket.append(dict(row))
 
     out: list[HorizonAggregate] = []
     for horizon, horizon_rows in by_horizon.items():
