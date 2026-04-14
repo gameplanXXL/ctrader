@@ -21,6 +21,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import __version__
+from app.clients.ctrader import build_ctrader_client
 from app.clients.ib import connect_ib, disconnect_ib
 from app.clients.mcp import handshake as mcp_handshake
 from app.config import settings
@@ -33,6 +34,7 @@ from app.routers import debug as debug_router
 from app.routers import pages as pages_router
 from app.routers import strategies as strategies_router
 from app.routers import trades as trades_router
+from app.services.bot_execution import handle_execution_event
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
 
@@ -79,6 +81,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.mcp_available = False
     app.state.ib = None
     app.state.ib_available = False
+    app.state.ctrader_client = None
 
     try:
         app.state.db_pool = await create_pool()
@@ -111,11 +114,39 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         app.state.ib = ib
         app.state.ib_available = ib is not None
 
+        # cTrader client — Epic 8. Always available (defaults to the
+        # StubCTraderClient when no credentials are configured) so the
+        # bot-execution pipeline can run end-to-end in dev.
+        app.state.ctrader_client = build_ctrader_client(
+            host=settings.ctrader_host,
+            client_id=settings.ctrader_client_id,
+            client_secret=settings.ctrader_client_secret,
+            account_id=settings.ctrader_account_id,
+        )
+
+        # Story 8.2: wire the execution-event handler to the cTrader
+        # client so FILLED events land in `trades`. Handler uses the
+        # pooled connection; errors inside the handler are swallowed
+        # by bot_execution itself and logged to structlog.
+        if app.state.ctrader_client is not None:
+            db_pool_for_events = app.state.db_pool
+
+            async def _on_execution_event(event) -> None:
+                if db_pool_for_events is None:
+                    return
+                async with db_pool_for_events.acquire() as event_conn:
+                    await handle_execution_event(event_conn, event)
+
+            await app.state.ctrader_client.subscribe_execution_events(_on_execution_event)
+
         yield
     finally:
         # Tear down in reverse order of construction. Each step is
         # null-guarded because partial startup failure may leave any of
         # them unset — we still want to close whatever DID succeed.
+        ctrader_client = getattr(app.state, "ctrader_client", None)
+        if ctrader_client is not None:
+            await ctrader_client.aclose()
         ib = getattr(app.state, "ib", None)
         if ib is not None:
             await disconnect_ib(ib)

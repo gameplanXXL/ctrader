@@ -9,6 +9,7 @@ crash on `TemplateResponse` resolution under the future-annotations
 stringization rule.
 """
 
+import asyncio
 import json
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -25,6 +26,7 @@ from app.models.proposal import (
     ProposalCreate,
     ProposalDecision,
 )
+from app.services.bot_execution import trigger_bot_execution
 from app.services.fundamental import get_fundamental
 from app.services.mcp_health import get_all_agents
 from app.services.proposal import (
@@ -214,6 +216,7 @@ async def post_approve(request: Request, proposal_id: int):
 
     db_pool = await _require_pool(request)
     mcp_client = getattr(request.app.state, "mcp_client", None)
+    ctrader_client = getattr(request.app.state, "ctrader_client", None)
 
     try:
         async with db_pool.acquire() as conn:
@@ -224,6 +227,11 @@ async def post_approve(request: Request, proposal_id: int):
         # FR28: hard invariant — RED / UNREACHABLE blocks approval
         # at the backend, not just the frontend.
         raise HTTPException(status_code=403, detail=str(exc)) from None
+
+    # Story 8.1: fire-and-forget bot execution after successful approve.
+    # Never blocks the HTTP response; errors inside `trigger_bot_execution`
+    # are swallowed and logged by bot_execution itself.
+    asyncio.create_task(trigger_bot_execution(db_pool, ctrader_client, proposal_id))
 
     return _decision_response("approved", proposal_id)
 

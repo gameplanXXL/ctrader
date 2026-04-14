@@ -101,6 +101,33 @@ class Settings(BaseSettings):
         description="IB Flex Query ID configured for ctrader trades",
     )
 
+    # ------------------------------------------------------------------
+    # cTrader Open API — Story 8.1 (Bot-Execution)
+    # ------------------------------------------------------------------
+    # All four optional; when any is unset the app falls back to the
+    # StubCTraderClient (which still runs the full lifecycle end-to-end,
+    # just without talking to a real account). The real OpenApiPy
+    # adapter lands after the CLAUDE.md 1-day spike.
+    ctrader_host: str | None = Field(
+        default=None,
+        description="cTrader Open API host (e.g. demo.ctraderapi.com)",
+    )
+    ctrader_port: int = Field(
+        default=5035, description="cTrader Open API port — 5035 for SSL Protobuf"
+    )
+    ctrader_client_id: str | None = Field(
+        default=None,
+        description="OAuth2 client id issued by cTrader Open API",
+    )
+    ctrader_client_secret: str | None = Field(
+        default=None,
+        description="OAuth2 client secret issued by cTrader Open API",
+    )
+    ctrader_account_id: str | None = Field(
+        default=None,
+        description="cTrader Demo account id used for bot-execution",
+    )
+
 
 # Singleton instance. Import this, not Settings() directly.
 settings = Settings()

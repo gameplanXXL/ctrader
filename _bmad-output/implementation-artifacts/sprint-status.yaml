@@ -119,9 +119,9 @@ development_status:
   # =========================================================================
   # EPIC 8: Bot-Execution (cTrader)
   # =========================================================================
-  epic-8: backlog
-  8-1-ctrader-client-execution: ready-for-dev
-  8-2-execution-status-tracking: ready-for-dev
+  epic-8: review  # Yolo-mode implementation 2026-04-14 — stub-backed (real OpenApiPy adapter pending 1-day spike per CLAUDE.md)
+  8-1-ctrader-client-execution: review
+  8-2-execution-status-tracking: review
 
   # =========================================================================
   # EPIC 9: Regime-Awareness & Kill-Switch
