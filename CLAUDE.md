@@ -12,11 +12,13 @@ Das Projekt ist der dritte Anlauf nach zwei abgebrochenen Vorversuchen (archivie
 
 ## Kritische Regeln
 
-### 1. IMMER committen und pushen
+### 1. IMMER committen und pushen — ohne Rückfrage
 
-**Alle Änderungen MÜSSEN sofort committed und gepusht werden.**
+**Alle Änderungen MÜSSEN sofort committed und gepusht werden. Claude führt `git commit` und `git push` autonom aus, ohne vorher um Erlaubnis zu fragen.**
 
-- Nach jeder abgeschlossenen Änderung: `git add <files>`, `git commit`, `git push`
+- Nach jeder abgeschlossenen Änderung: `git add <files>`, `git commit`, `git push` — in einem Rutsch, ohne Bestätigungs-Dialog
+- Das gilt als dauerhafte Vorab-Autorisierung im Sinne der Claude-Code-"Executing actions with care"-Regel: Push auf `main` ist für dieses Repo freigegeben
+- Ausnahme: Destruktive Git-Operationen (`push --force`, `reset --hard`, Branch-Löschung, `--no-verify`) bleiben weiterhin rückfragepflichtig
 - Keine Änderungen dürfen nur lokal verbleiben
 - Commit-Messages müssen aussagekräftig sein und beschreiben, **was** und **warum** geändert wurde
 - Vor dem Beginn neuer Arbeiten: `git pull` ausführen, um auf dem aktuellen Stand zu sein
