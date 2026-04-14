@@ -28,6 +28,10 @@ from app.models.strategy import (
     StrategyHorizon,
     StrategyStatus,
 )
+from app.services.kill_switch import (
+    StrategyNotPausedByKillSwitchError,
+    manual_override,
+)
 from app.services.mcp_health import get_all_agents
 from app.services.sparkline import render_sparkline_svg
 from app.services.strategy import (
@@ -280,12 +284,10 @@ async def post_override_kill_switch(request: Request, strategy_id: int):
     Writes an `audit_log` row with `event_type='kill_switch_overridden'`
     so FR44's "manual override of kill-switch" trail is durable and
     the Regime page's override-history table can render the entry.
-    """
 
-    from app.services.kill_switch import (
-        StrategyNotPausedByKillSwitchError,
-        manual_override,
-    )
+    Code-review M2 / BH-14: kill_switch imports are now module-level
+    instead of a function-scope import.
+    """
 
     db_pool = await _require_pool(request)
     async with db_pool.acquire() as conn:

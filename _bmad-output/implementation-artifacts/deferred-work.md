@@ -284,3 +284,34 @@ This file is append-only — never delete entries, only mark them done.
 - **D192** No router-integration test for `post_approve` that verifies `spawn_bot_execution` is called and the returned task observes `_background_tasks` set registration. `tests/unit/test_bot_execution.py::test_spawn_bot_execution_tracks_task_in_background_set` covers the service-layer contract only. *Source: EC-7*
 - **D193** No concurrent-approve TOCTOU test for the `client_order_id` race — would need two simultaneous asyncpg connections racing the `UPDATE ... WHERE client_order_id IS NULL`. Covered by the service-layer none-guard test but not by a real-DB race. *Source: BH-14*
 - **D194** No integration test exercising the Migration 011 `proposals_client_order_id_key` UNIQUE constraint — would prove that a buggy service layer bypassing `_UPDATE_CLIENT_ORDER_ID_SQL` still can't produce a duplicate. *Source: EC-25*
+
+## Epic 9 — Regime-Awareness & Kill-Switch (deferred LOW findings)
+
+### Transactions / migration polish
+- **D195** Migration 013's CHECK constraint on `strategies.paused_by` was added WITHOUT `NOT VALID + VALIDATE` (inconsistent with Migration 009's convention). On a large strategies table, this would hold an exclusive lock during validation. Acceptable today because strategies is empty in dev; future production backfills should re-run 013 with the NOT VALID pattern. *Source: BH-17*
+- **D196** `regime_snapshots` has no `UNIQUE (date_trunc('day', created_at))` constraint — two cron runs (or a cron + a manual refresh button click) produce two rows for the same day. `get_latest_regime` picks the newest so behavior is correct, but the time-series has duplicates. Accept or add an expression index. *Source: BH-16, EC-22*
+- **D197** `evaluate_kill_switch` issues N audit_log inserts inside the loop — no batching. At 20+ strategies this becomes 20+ round-trips. Batch via `executemany` when Chef's strategy count grows. *Source: Auditor patch-medium*
+
+### Data-source robustness
+- **D198** F&G bucket boundaries in `fear_greed_classification` don't match alternative.me's exact published bands (specifically the 50–54 "Neutral" vs 55–74 "Greed" handoff is not formally specified anywhere in code). Align against their docs if Chef cares about the classification label accuracy. *Source: BH-18*
+- **D199** `fetch_fear_greed` / `fetch_vix` have no settings override — alternative.me and Yahoo Finance URLs are hardcoded. Air-gapped production has no local-mock hook; tests use `httpx.MockTransport` but there's no operator-facing replacement path. *Source: EC-21*
+- **D200** Yahoo Finance blocks generic User-Agents intermittently — the current `ctrader/0.1` UA passes today but has no contract test. A daily-cron regression would only show as `fetch_errors.vix` in the snapshot row. *Source: BH-12, EC-16*
+- **D201** `fetch_fear_greed` does not retry transient failures (just logs + returns None). Alternative.me occasional 503s would need a next-day snapshot to recover — no intraday retry. *Source: Story 9.1 Task 5 implicit*
+
+### Integration gaps
+- **D202** `execute_proposal`'s H8 strategy-status re-check does NOT return an `audit_log` row when it skips. Chef has no post-hoc way to see "the bot skipped this approval because the strategy got paused". Add an audit row mirroring the `bot_execution_failed` path from Epic 8 M1. *Source: EC-2 follow-up*
+- **D203** `app/services/strategy.py::update_status` does NOT clear `paused_by` when Chef manually re-activates a kill-switch-paused strategy via the Epic-6 status badge, and does NOT write a `kill_switch_overridden` audit row. Only the Epic-9 Regime-page override button produces the proper audit trail. Cross-epic fix: Epic-6 `update_status` should detect the transition and forward to `manual_override`. *Source: EC-5*
+- **D204** Migration 013's docstring says `paused_by='manual' when Chef paused from the strategy-detail page`, but Epic-6 `update_status` never sets it. Either fix the docstring or fix the code. *Source: EC-4*
+- **D205** Strategies page (Epic 6) has no UX differentiation between a manual pause and a kill-switch pause. Badge should read "⏸ Manual" vs "🔴 Kill-Switch" so Chef knows at a glance. *Source: EC-5 follow-up*
+
+### Observability
+- **D206** `post_regime_snapshot` returns 201 even when the kill-switch evaluator failed (returning `kill_switch.error` in the payload). Chef has no visual indicator in the Regime page's refresh flow that the kill-switch half failed — the page reloads and shows stale paused-strategies data. *Source: EC-13*
+- **D207** No CSRF / auth on `POST /strategies/{id}/override-kill-switch` — any browser tab bound to 127.0.0.1 can reactivate a kill-switch-paused strategy. Acceptable today per NFR-S2 (bind to localhost-only) but flag for post-MVP auth work. *Source: BH-19, EC-6*
+- **D208** `_SELECT_HISTORY_SQL` caps at 50 entries — an extreme-fear week with bouncing F&G can overflow. Template offers no "see all" link. *Source: EC-12*
+
+### Test coverage
+- **D209** No integration test for `POST /api/regime/snapshot` through TestClient with a real-ish DB container (would have caught the shared-connection race in BH-5). *Source: BH-24, EC-17*
+- **D210** No template render test for `pages/regime.html` with real regime data (the VIX Decimal-format bug BH-7 was invisible in unit tests — only surfaced on manual smoke-probe inspection). *Source: BH-24, EC-19*
+- **D211** No test for `evaluate_kill_switch` rolling back audit_log writes if PAUSE SQL raises mid-loop. With the new `conn.transaction()` wrap the rollback is in place; needs a failure-injection test to prove it. *Source: EC-18*
+- **D212** No test for Migration 013's CHECK constraint rejecting bogus `paused_by` values (e.g. 'kill-switch' with hyphen). *Source: BH-24*
+- **D213** No end-to-end test that a kill-switch-paused strategy refuses a new proposal via `create_proposal`. The Epic-6 `is_strategy_active()` + Epic-9 kill-switch integration is tested only via hand-probe smoke. *Source: EC interactions*

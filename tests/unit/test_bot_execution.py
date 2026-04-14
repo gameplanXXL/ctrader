@@ -134,6 +134,8 @@ def _match_key(sql: str) -> str:
         return "insert_trade"
     if "INSERT INTO audit_log" in sql:
         return "insert_audit_log"
+    if "FROM strategies" in sql and "status::text" in sql:
+        return "strategy_status"
     return "unknown"
 
 
@@ -277,6 +279,7 @@ async def test_execute_proposal_happy_path_via_stub() -> None:
     stub = StubCTraderClient(fill_delay_seconds=0.01)
     conn = _FakeConn(
         canned={
+            "fetchrow:strategy_status": [{"status": "active", "paused_by": None}],
             "fetchval:select_client_order_id": [None],
             "fetchval:update_client_order_id": [42],
             "fetchval:update_execution_status": [42],  # preliminary CAS wins
@@ -325,6 +328,7 @@ async def test_execute_proposal_idempotent_when_order_exists() -> None:
 
     conn = _FakeConn(
         canned={
+            "fetchrow:strategy_status": [{"status": "active", "paused_by": None}],
             "fetchval:select_client_order_id": ["proposal-42-preseed"],
         }
     )
@@ -347,6 +351,7 @@ async def test_execute_proposal_race_recovery_returns_none_when_row_gone() -> No
     stub = StubCTraderClient(fill_delay_seconds=0.01)
     conn = _FakeConn(
         canned={
+            "fetchrow:strategy_status": [{"status": "active", "paused_by": None}],
             # 1st SELECT: NULL → triggers generation path
             # 2nd SELECT (race recovery): NULL → row gone
             "fetchval:select_client_order_id": [None, None],
@@ -373,6 +378,7 @@ async def test_execute_proposal_preliminary_cas_miss_is_ok() -> None:
     stub = StubCTraderClient(fill_delay_seconds=0.01)
     conn = _FakeConn(
         canned={
+            "fetchrow:strategy_status": [{"status": "active", "paused_by": None}],
             "fetchval:select_client_order_id": [None],
             "fetchval:update_client_order_id": [42],
             # preliminary CAS misses because event handler already
@@ -383,6 +389,43 @@ async def test_execute_proposal_preliminary_cas_miss_is_ok() -> None:
     proposal = _approved_proposal()
     result = await execute_proposal(conn, proposal, stub)
     assert result is not None  # place_order ok, CAS miss does not fail
+    await stub.aclose()
+
+
+async def test_execute_proposal_skips_when_strategy_kill_switch_paused() -> None:
+    """Code-review H8 / EC-2: an already-approved proposal whose
+    strategy got kill-switch-paused between approval and execution
+    must NOT fire. Prevents the "approved-at-T2 → kill-switch-at-T4
+    → fire-and-forget-at-T5" race.
+    """
+
+    stub = StubCTraderClient(fill_delay_seconds=0.01)
+    conn = _FakeConn(
+        canned={
+            "fetchrow:strategy_status": [{"status": "paused", "paused_by": "kill_switch"}],
+        }
+    )
+    proposal = _approved_proposal()
+
+    result = await execute_proposal(conn, proposal, stub)
+    assert result is None
+    # No client_order_id SELECT, no place_order.
+    assert not any("SELECT client_order_id" in c[1] for c in conn.calls)
+    assert len(stub._orders) == 0
+    await stub.aclose()
+
+
+async def test_execute_proposal_skips_when_strategy_row_missing() -> None:
+    """Strategy id present in proposal but row no longer exists in
+    strategies table — skip + log, never place."""
+
+    stub = StubCTraderClient(fill_delay_seconds=0.01)
+    conn = _FakeConn(canned={"fetchrow:strategy_status": [None]})
+    proposal = _approved_proposal()
+
+    result = await execute_proposal(conn, proposal, stub)
+    assert result is None
+    assert len(stub._orders) == 0
     await stub.aclose()
 
 

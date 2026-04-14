@@ -7,7 +7,7 @@
   checkbox. The whole macro fits inside ~850px height at 1440px
   width per UX-DR67.
 #}
-{% macro proposal_viewport(proposal, fundamental) %}
+{% macro proposal_viewport(proposal, fundamental, regime=None) %}
 <div class="proposal-viewport" aria-label="Proposal {{ proposal.id }} decision viewport">
   <div class="proposal-viewport__columns">
     {# ── Column 1 — Agent ──────────────────────────────────── #}
@@ -183,6 +183,31 @@
         hx-swap="outerHTML"
       >Revision</button>
     </form>
+
+    {# ── Regime context (Story 9.3 AC #3 / FR45 / UX-DR75) ───── #}
+    {# Code-review H7 / Auditor 9.3 #3 / EC-1: compact regime footer so
+       Chef sees current F&G, VIX, and kill-switch state right under
+       the decision buttons. The approval viewport is where the
+       regime-aware context is most relevant — it's the exact moment
+       Chef commits risk. `regime` may be None if the approvals router
+       couldn't load it (degraded mode); the footer simply disappears. #}
+    {% if regime is not none and regime.snapshot is not none %}
+      {% set snap = regime.snapshot %}
+      <div class="proposal-viewport__regime-footer" role="status">
+        <span class="proposal-viewport__regime-label">Regime:</span>
+        <span class="proposal-viewport__regime-metric">
+          F&amp;G {{ snap.fear_greed_index if snap.fear_greed_index is not none else '—' }}
+          ({{ regime.fg_classification }})
+        </span>
+        <span class="proposal-viewport__regime-metric">
+          VIX {% if snap.vix is not none %}{{ '%.2f' | format(snap.vix | float) }}{% else %}—{% endif %}
+        </span>
+        <span class="proposal-viewport__regime-metric {% if regime.kill_switch_active %}proposal-viewport__regime-metric--alert{% endif %}">
+          Kill-Switch:
+          {% if regime.kill_switch_active %}🔴 ACTIVE ({{ regime.paused_count }} paused){% else %}🟢 OFF{% endif %}
+        </span>
+      </div>
+    {% endif %}
   </footer>
 </div>
 
@@ -374,6 +399,26 @@
   .proposal-viewport__textarea:focus {
     outline: none;
     border-color: var(--accent);
+  }
+  /* Story 9.3 / Code-review H7: regime-context footer */
+  .proposal-viewport__regime-footer {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-3);
+    margin-top: var(--space-2);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+  }
+  .proposal-viewport__regime-label {
+    font-weight: 600;
+    color: var(--text-primary);
+  }
+  .proposal-viewport__regime-metric--alert {
+    color: var(--color-loss, #ef4444);
+    font-weight: 600;
   }
 </style>
 {% endmacro %}

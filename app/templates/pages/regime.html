@@ -8,11 +8,12 @@
       class="regime-page__refresh"
       hx-post="/api/regime/snapshot"
       hx-swap="none"
-      hx-on::after-request="window.location.reload()"
+      hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { this.querySelector('.regime-page__refresh-error').textContent = 'Snapshot fehlgeschlagen (' + event.detail.xhr.status + ')'; }"
     >
       <button type="submit" class="btn-secondary" title="Manuell einen neuen Regime-Snapshot erzeugen">
         ⟳ Snapshot erzeugen
       </button>
+      <span class="regime-page__refresh-error" role="alert"></span>
     </form>
   </header>
 
@@ -44,7 +45,11 @@
       <article class="regime-hero__card">
         <h2 class="regime-hero__label">VIX</h2>
         <p class="regime-hero__value tabular">
-          {{ '%.2f' | format(snap.vix) if snap.vix is not none else '—' }}
+          {# Code-review H5 / BH-7: Jinja `'%.2f'|format` uses Python's
+             `%` operator, which rejects `Decimal` with a TypeError and
+             would 500 the whole page. Convert to float first — VIX
+             precision beyond 2dp is noise anyway. #}
+          {% if snap.vix is not none %}{{ '%.2f' | format(snap.vix | float) }}{% else %}—{% endif %}
         </p>
         <p class="regime-hero__sub">Volatility Index</p>
       </article>
@@ -149,7 +154,13 @@
                     <span class="status-pill">{{ entry.action }}</span>
                   {% endif %}
                 </td>
-                <td>{{ entry.strategy_name or ('#' + entry.strategy_id|string) if entry.strategy_id else '—' }}</td>
+                <td>
+                  {# Code-review M1 / BH-6: explicit if/elif/else avoids
+                     Jinja operator-precedence footgun with `a or b if c`. #}
+                  {% if entry.strategy_name %}{{ entry.strategy_name }}
+                  {% elif entry.strategy_id %}#{{ entry.strategy_id }}
+                  {% else %}—{% endif %}
+                </td>
                 <td>{{ entry.actor }}</td>
                 <td class="tabular">{{ entry.fear_greed_index if entry.fear_greed_index is not none else '—' }}</td>
               </tr>

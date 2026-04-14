@@ -10,8 +10,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
-from decimal import Decimal
-from typing import Any
 
 import asyncpg
 
@@ -82,7 +80,20 @@ SELECT
     s.name AS strategy_name,
     al.actor,
     COALESCE(al.override_flags->>'action', '-') AS action,
-    NULLIF(al.override_flags->>'fear_greed_index', '')::int AS fear_greed_index,
+    -- Code-review H1 / BH-1 / BH-2: the naive
+    -- `NULLIF(... ->> 'fear_greed_index', '')::int` pattern exploded
+    -- on JSONB null values because `->>` returns the literal text
+    -- 'null' (not SQL NULL, not empty string). Fix: use the JSONB
+    -- existence + typeof guard so missing or null values become SQL
+    -- NULL cleanly before the ::int cast. Kept as belt-and-suspenders
+    -- alongside the service-side fix that omits the key entirely
+    -- when fear_greed_index is None (see kill_switch._log_state_change).
+    CASE
+        WHEN al.override_flags ? 'fear_greed_index'
+         AND jsonb_typeof(al.override_flags->'fear_greed_index') = 'number'
+        THEN (al.override_flags->>'fear_greed_index')::int
+        ELSE NULL
+    END AS fear_greed_index,
     al.notes
   FROM audit_log al
   LEFT JOIN strategies s ON s.id = al.strategy_id
@@ -136,16 +147,3 @@ async def get_current_regime(conn: asyncpg.Connection) -> RegimeView:
         paused_strategies=paused_strategies,
         override_history=override_history,
     )
-
-
-def format_pnl(value: Any) -> str:
-    """Pretty-print a per-broker P&L value for the template."""
-
-    if value is None:
-        return "—"
-    try:
-        d = Decimal(str(value))
-    except (ValueError, TypeError):
-        return str(value)
-    sign = "" if d >= 0 else "-"
-    return f"{sign}${abs(d):,.2f}"

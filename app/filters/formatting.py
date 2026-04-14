@@ -123,11 +123,18 @@ def or_dash(value: Any) -> str:
 
 
 def format_datetime(value: Any) -> str:
-    """Render a datetime as `YYYY-MM-DD HH:MM` for journal / regime tables."""
+    """Render a datetime as `YYYY-MM-DD HH:MM` UTC for journal / regime tables.
+
+    Code-review M4 / EC-8: convert to UTC before rendering (same pattern
+    as `format_time`) so the regime override-history timeline matches
+    the journal's time columns regardless of the asyncpg session tz.
+    """
 
     if value is None:
         return EM_DASH
     if isinstance(value, datetime):
+        if value.tzinfo is not None:
+            value = value.astimezone(UTC)
         return value.strftime("%Y-%m-%d %H:%M")
     return str(value)
 

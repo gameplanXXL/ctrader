@@ -108,13 +108,24 @@ async def _log_state_change(
     Migration 009's CHECK constraint pins the event_type vocabulary.
     We use `kill_switch_triggered` for automated pauses + recoveries
     and `kill_switch_overridden` for manual overrides.
+
+    Code-review H1 / BH-1 / BH-2: we OMIT the `fear_greed_index` key
+    when None rather than writing JSON `null` — the regime-history
+    SELECT's `NULLIF(override_flags->>'fear_greed_index', '')::int`
+    returns the string `'null'` for a JSON null and then raises
+    `invalid input syntax for type integer: "null"`, crashing the
+    Regime page as soon as any manual override exists. Omitting the
+    key turns the `->>` into SQL NULL, which the NULLIF + CAST chain
+    handles cleanly. The SQL also uses `?` existence check as a
+    belt-and-suspenders guard.
     """
 
     override_flags: dict[str, Any] = {
-        "fear_greed_index": fear_greed_index,
         "action": action,
         "automated": actor == "kill_switch",
     }
+    if fear_greed_index is not None:
+        override_flags["fear_greed_index"] = fear_greed_index
     await conn.execute(
         _INSERT_AUDIT_SQL,
         event_type,
@@ -149,59 +160,66 @@ async def evaluate_kill_switch(
             fear_greed_index=None, action="noop", paused_ids=[], recovered_ids=[]
         )
 
-    if fear_greed_index < KILL_SWITCH_THRESHOLD:
-        rows = await conn.fetch(_PAUSE_SQL, list(_SHORT_HORIZONS))
-        paused_ids = [row["id"] for row in rows]
+    # Code-review H2 / BH-3 / EC-3: state-change + audit-trail must be
+    # atomic. Without the transaction, a failed audit INSERT mid-loop
+    # leaves strategies paused with a partial trail, violating the
+    # Story-9.2 invariant "every state transition writes audit_log".
+    async with conn.transaction():
+        if fear_greed_index < KILL_SWITCH_THRESHOLD:
+            rows = await conn.fetch(_PAUSE_SQL, list(_SHORT_HORIZONS))
+            paused_ids = [row["id"] for row in rows]
+            for row in rows:
+                await _log_state_change(
+                    conn,
+                    event_type="kill_switch_triggered",
+                    strategy_id=row["id"],
+                    fear_greed_index=fear_greed_index,
+                    action="pause",
+                    actor="kill_switch",
+                    notes=(
+                        f"Auto-pause: Fear & Greed = {fear_greed_index} (< {KILL_SWITCH_THRESHOLD})"
+                    ),
+                )
+            logger.info(
+                "kill_switch.paused",
+                fear_greed_index=fear_greed_index,
+                count=len(paused_ids),
+                strategy_ids=paused_ids,
+            )
+            return KillSwitchResult(
+                fear_greed_index=fear_greed_index,
+                action="pause",
+                paused_ids=paused_ids,
+                recovered_ids=[],
+            )
+
+        rows = await conn.fetch(_RECOVER_SQL)
+        recovered_ids = [row["id"] for row in rows]
         for row in rows:
             await _log_state_change(
                 conn,
                 event_type="kill_switch_triggered",
                 strategy_id=row["id"],
                 fear_greed_index=fear_greed_index,
-                action="pause",
+                action="recover",
                 actor="kill_switch",
                 notes=(
-                    f"Auto-pause: Fear & Greed = {fear_greed_index} (< {KILL_SWITCH_THRESHOLD})"
+                    f"Auto-recover: Fear & Greed = {fear_greed_index} (>= {KILL_SWITCH_THRESHOLD})"
                 ),
             )
-        logger.info(
-            "kill_switch.paused",
-            fear_greed_index=fear_greed_index,
-            count=len(paused_ids),
-            strategy_ids=paused_ids,
-        )
+        if recovered_ids:
+            logger.info(
+                "kill_switch.recovered",
+                fear_greed_index=fear_greed_index,
+                count=len(recovered_ids),
+                strategy_ids=recovered_ids,
+            )
         return KillSwitchResult(
             fear_greed_index=fear_greed_index,
-            action="pause",
-            paused_ids=paused_ids,
-            recovered_ids=[],
+            action="recover" if recovered_ids else "noop",
+            paused_ids=[],
+            recovered_ids=recovered_ids,
         )
-
-    rows = await conn.fetch(_RECOVER_SQL)
-    recovered_ids = [row["id"] for row in rows]
-    for row in rows:
-        await _log_state_change(
-            conn,
-            event_type="kill_switch_triggered",
-            strategy_id=row["id"],
-            fear_greed_index=fear_greed_index,
-            action="recover",
-            actor="kill_switch",
-            notes=(f"Auto-recover: Fear & Greed = {fear_greed_index} (>= {KILL_SWITCH_THRESHOLD})"),
-        )
-    if recovered_ids:
-        logger.info(
-            "kill_switch.recovered",
-            fear_greed_index=fear_greed_index,
-            count=len(recovered_ids),
-            strategy_ids=recovered_ids,
-        )
-    return KillSwitchResult(
-        fear_greed_index=fear_greed_index,
-        action="recover" if recovered_ids else "noop",
-        paused_ids=[],
-        recovered_ids=recovered_ids,
-    )
 
 
 class StrategyNotPausedByKillSwitchError(ValueError):
@@ -228,23 +246,28 @@ async def manual_override(
 
     Writes an `audit_log` row with `event_type='kill_switch_overridden'`
     so FR44's "manual override of kill-switch" trail is durable.
+
+    Code-review H3 / BH-4: the UPDATE + audit INSERT must be atomic so
+    a crash between them cannot leave a strategy reactivated without
+    its audit trail (FR44 durability).
     """
 
-    row = await conn.fetchrow(_OVERRIDE_SQL, strategy_id)
-    if row is None:
-        raise StrategyNotPausedByKillSwitchError(
-            f"strategy {strategy_id} is not paused by the kill switch"
-        )
+    async with conn.transaction():
+        row = await conn.fetchrow(_OVERRIDE_SQL, strategy_id)
+        if row is None:
+            raise StrategyNotPausedByKillSwitchError(
+                f"strategy {strategy_id} is not paused by the kill switch"
+            )
 
-    await _log_state_change(
-        conn,
-        event_type="kill_switch_overridden",
-        strategy_id=strategy_id,
-        fear_greed_index=None,
-        action="manual_override",
-        actor=actor,
-        notes=notes or "Chef manually overrode the kill-switch pause",
-    )
+        await _log_state_change(
+            conn,
+            event_type="kill_switch_overridden",
+            strategy_id=strategy_id,
+            fear_greed_index=None,
+            action="manual_override",
+            actor=actor,
+            notes=notes or "Chef manually overrode the kill-switch pause",
+        )
     logger.info(
         "kill_switch.manual_override",
         strategy_id=strategy_id,

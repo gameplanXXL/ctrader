@@ -1,4 +1,6 @@
 {# Story 7.3 fragment — wraps the proposal_viewport macro for the
-   HTMX swap target. #}
+   HTMX swap target. Story 9.3 AC #3 / Code-review H7: `regime` is
+   threaded through so the viewport can render the FR45 / UX-DR75
+   regime-context footer under the decision buttons. #}
 {% from "components/proposal_viewport.html" import proposal_viewport %}
-{{ proposal_viewport(proposal, fundamental) }}
+{{ proposal_viewport(proposal, fundamental, regime) }}

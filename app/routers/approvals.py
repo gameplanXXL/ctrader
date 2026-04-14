@@ -146,7 +146,16 @@ async def create_proposal_route(request: Request) -> JSONResponse:
 
 @router.get("/proposals/{proposal_id}/drilldown", include_in_schema=False)
 async def proposal_drilldown(request: Request, proposal_id: int):
-    """3-column viewport fragment (agent / fundamental / risk gate)."""
+    """3-column viewport fragment (agent / fundamental / risk gate)
+    plus the Story-9.3 regime-context footer (FR45 / UX-DR75).
+
+    Code-review H7 / Auditor 9.3 AC#3 / EC-1: the regime footer was
+    missing from Epic 9's initial commit — this restores it by
+    loading `get_current_regime(conn)` under the same connection
+    acquire and threading it into the template context.
+    """
+
+    from app.services.regime import get_current_regime
 
     db_pool = await _require_pool(request)
     mcp_client = getattr(request.app.state, "mcp_client", None)
@@ -155,6 +164,14 @@ async def proposal_drilldown(request: Request, proposal_id: int):
         proposal = await get_proposal(conn, proposal_id)
         if proposal is None:
             raise HTTPException(status_code=404, detail="proposal not found")
+        # Load regime under the same connection to avoid an extra
+        # acquire round-trip. Failures degrade gracefully — the
+        # footer simply disappears.
+        try:
+            regime = await get_current_regime(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("proposal_drilldown.regime_failed", error=str(exc))
+            regime = None
 
     fundamental = None
     try:
@@ -168,6 +185,7 @@ async def proposal_drilldown(request: Request, proposal_id: int):
         {
             "proposal": proposal,
             "fundamental": fundamental,
+            "regime": regime,
         },
     )
 

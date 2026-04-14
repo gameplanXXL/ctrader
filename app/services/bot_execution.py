@@ -297,6 +297,18 @@ UPDATE proposals
 RETURNING id
 """
 
+# Code-review H8 / EC-2: re-check strategy status immediately before
+# placing the cTrader order. Otherwise an already-approved proposal
+# whose strategy got paused by the kill-switch between approval and
+# execution still fires — defeating the whole point of a crash-regime
+# safety net. We skip-and-log if strategy_id is NULL (strategy-free
+# proposals are allowed via Story 7.1).
+_SELECT_STRATEGY_STATUS_SQL = """
+SELECT status::text AS status, paused_by
+  FROM strategies
+ WHERE id = $1
+"""
+
 
 async def execute_proposal(
     conn: asyncpg.Connection,
@@ -326,6 +338,30 @@ async def execute_proposal(
             status=proposal.status.value,
         )
         return None
+
+    # Code-review H8 / EC-2: kill-switch-paused strategies must NOT
+    # fire orders even if the proposal was approved before the
+    # regime snapshot ran. `execute_proposal` is called from a
+    # fire-and-forget background task which may wake up an arbitrary
+    # number of seconds / minutes after the approve HTTP response.
+    if proposal.strategy_id is not None:
+        strategy_row = await conn.fetchrow(_SELECT_STRATEGY_STATUS_SQL, proposal.strategy_id)
+        if strategy_row is None:
+            logger.warning(
+                "bot_execution.skip_strategy_missing",
+                proposal_id=proposal.id,
+                strategy_id=proposal.strategy_id,
+            )
+            return None
+        if strategy_row["status"] != "active":
+            logger.warning(
+                "bot_execution.skip_strategy_inactive",
+                proposal_id=proposal.id,
+                strategy_id=proposal.strategy_id,
+                status=strategy_row["status"],
+                paused_by=strategy_row["paused_by"],
+            )
+            return None
 
     existing = await conn.fetchval(_SELECT_CLIENT_ORDER_ID_SQL, proposal.id)
     client_order_id: str | None

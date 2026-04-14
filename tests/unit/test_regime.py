@@ -232,6 +232,19 @@ class _FakeConn:
         self.calls.append(("execute", sql, args))
         return "OK 1"
 
+    def transaction(self):
+        """No-op async CM so service code under test can call
+        `async with conn.transaction():` without patching asyncpg."""
+
+        class _Txn:
+            async def __aenter__(self):  # noqa: N805 — nested CM
+                return None
+
+            async def __aexit__(self, *_exc):  # noqa: N805 — nested CM
+                return None
+
+        return _Txn()
+
 
 def _match_key(sql: str) -> str:
     if "jsonb_object_agg(broker" in sql:
@@ -438,6 +451,36 @@ async def test_manual_override_rejects_non_kill_switch_paused() -> None:
         await manual_override(conn, 99)
     # No audit row written on failure
     assert not any("INSERT INTO audit_log" in c[1] for c in conn.calls)
+
+
+async def test_manual_override_audit_row_omits_none_fear_greed_index() -> None:
+    """Code-review H1 / BH-1 / BH-2: the kill_switch_overridden audit
+    row must NOT carry a JSON-null `fear_greed_index` key, otherwise
+    the regime-history SELECT's text-cast blows up on the literal
+    `'null'` string.
+    """
+
+    conn = _FakeConn(canned={"override_strategy": {"id": 5, "name": "Test"}})
+    await manual_override(conn, 5)
+    audit_calls = [c for c in conn.calls if "INSERT INTO audit_log" in c[1]]
+    assert len(audit_calls) == 1
+    _, _, args = audit_calls[0]
+    # args[2] is override_flags dict
+    override_flags = args[2]
+    assert "fear_greed_index" not in override_flags
+    assert override_flags["action"] == "manual_override"
+
+
+async def test_evaluate_kill_switch_pause_audit_flags_include_fg() -> None:
+    """Mirror of the above: pause events DO carry fear_greed_index."""
+
+    conn = _FakeConn(canned={"pause_strategies": [{"id": 1, "name": "Scalp"}]})
+    await evaluate_kill_switch(conn, fear_greed_index=12)
+    audit_calls = [c for c in conn.calls if "INSERT INTO audit_log" in c[1]]
+    assert len(audit_calls) == 1
+    override_flags = audit_calls[0][2][2]
+    assert override_flags["fear_greed_index"] == 12
+    assert override_flags["action"] == "pause"
 
 
 # ---------------------------------------------------------------------------

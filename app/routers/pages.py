@@ -465,7 +465,14 @@ async def trends_page(request: Request):
 
 @router.get("/regime", include_in_schema=False)
 async def regime_page(request: Request):
-    """Story 9.3 — regime page with hero, paused-strategies, override history."""
+    """Story 9.3 — regime page with hero, paused-strategies, override history.
+
+    Code-review M3 / BH-15: specific asyncpg error handling so the
+    "Migration 012/013 not applied" case logs distinctly instead of
+    surfacing as a generic "DB-Fehler" banner.
+    """
+
+    import asyncpg
 
     from app.services.regime import get_current_regime
 
@@ -477,6 +484,16 @@ async def regime_page(request: Request):
         try:
             async with db_pool.acquire() as conn:
                 regime = await get_current_regime(conn)
+        except (
+            asyncpg.UndefinedTableError,
+            asyncpg.UndefinedColumnError,
+        ) as exc:
+            logger.error(
+                "pages.regime.migration_missing",
+                error=str(exc),
+                hint="run `uv run python -m app.db.migrate` to apply migrations 012/013",
+            )
+            db_error = True
         except Exception as exc:  # noqa: BLE001
             logger.exception("pages.regime.db_error", error=str(exc))
             db_error = True
