@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T05:00'
+last_updated: '2026-04-14T06:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -93,12 +93,12 @@ development_status:
   # =========================================================================
   # EPIC 7: Approval-Pipeline & Risk-Gate
   # =========================================================================
-  epic-7: backlog
-  7-1-proposal-datenmodell-dashboard: ready-for-dev
-  7-2-risk-gate-integration: ready-for-dev
-  7-3-proposal-drilldown-viewport: ready-for-dev
-  7-4-approve-reject-revision: ready-for-dev
-  7-5-immutable-audit-log: ready-for-dev
+  epic-7: in-progress
+  7-1-proposal-datenmodell-dashboard: review
+  7-2-risk-gate-integration: review
+  7-3-proposal-drilldown-viewport: review
+  7-4-approve-reject-revision: review
+  7-5-immutable-audit-log: review  # append-only trigger live-verified, UI view deferred
 
   # =========================================================================
   # EPIC 8: Bot-Execution (cTrader)

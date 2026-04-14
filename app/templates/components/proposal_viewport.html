@@ -1,12 +1,313 @@
 {#
-  proposal_viewport(proposal, fundamental, risk_gate)
-  Tier-3 component, full implementation in Story 7.3.
-  Single-viewport layout for the approval drill-down (~15 decision-
-  relevant data points in one screen, no scroll).
+  proposal_viewport(proposal, fundamental)
+  Story 7.3 — 3-column single-viewport decision layout.
+
+  Columns: Agent Vorschlag | Fundamental Einschätzung | Risk-Gate.
+  Footer: action buttons (Approve / Reject / Revision) + Override
+  checkbox. The whole macro fits inside ~850px height at 1440px
+  width per UX-DR67.
 #}
-{% macro proposal_viewport(proposal, fundamental, risk_gate) %}
-<div class="proposal-viewport"
-     aria-label="Proposal {{ proposal.id }} decision viewport">
-  {# Stub — real implementation in Story 7.3 #}
+{% macro proposal_viewport(proposal, fundamental) %}
+<div class="proposal-viewport" aria-label="Proposal {{ proposal.id }} decision viewport">
+  <div class="proposal-viewport__columns">
+    {# ── Column 1 — Agent ──────────────────────────────────── #}
+    <section class="proposal-viewport__column">
+      <h4 class="proposal-viewport__col-title">Agent</h4>
+      <dl class="proposal-viewport__field-grid">
+        <div><dt>Agent</dt><dd>{{ proposal.agent_id | title }}</dd></div>
+        <div><dt>Strategy</dt><dd>{{ proposal.strategy_id or "—" }}</dd></div>
+        <div><dt>Side</dt><dd>{{ proposal.side.value | upper }}</dd></div>
+        <div><dt>Horizon</dt><dd>{{ proposal.horizon.value }}</dd></div>
+        <div><dt>Entry</dt><dd class="tabular">{{ proposal.entry_price }}</dd></div>
+        <div><dt>Stop</dt><dd class="tabular">{{ proposal.stop_price or "—" }}</dd></div>
+        <div><dt>Target</dt><dd class="tabular">{{ proposal.target_price or "—" }}</dd></div>
+        <div><dt>Size</dt><dd class="tabular">{{ proposal.position_size }}</dd></div>
+        <div><dt>R-Budget</dt><dd class="tabular">{{ proposal.risk_budget }}</dd></div>
+      </dl>
+      {% if proposal.trigger_spec %}
+        <p class="proposal-viewport__thesis">
+          {{ proposal.trigger_spec.get("entry_reason") or proposal.trigger_spec.get("thesis") or "" }}
+        </p>
+      {% endif %}
+    </section>
+
+    {# ── Column 2 — Fundamental ────────────────────────────── #}
+    <section class="proposal-viewport__column">
+      <h4 class="proposal-viewport__col-title">Fundamental</h4>
+      {% if fundamental %}
+        {% set assessment = fundamental.assessment %}
+        <dl class="proposal-viewport__field-grid">
+          <div><dt>Rating</dt><dd>{{ assessment.rating.value | upper }}</dd></div>
+          <div><dt>Confidence</dt><dd class="tabular">{{ (assessment.confidence * 100) | int }}%</dd></div>
+          <div><dt>Agent</dt><dd>{{ assessment.agent_id | title }}</dd></div>
+        </dl>
+        <p class="proposal-viewport__thesis">{{ assessment.thesis or "—" }}</p>
+        <p class="proposal-viewport__staleness">
+          {% if fundamental.is_stale %}
+            <span class="proposal-viewport__stale-badge">stale</span>
+          {% endif %}
+          Stand: {{ fundamental.cached_at | format_time }}
+        </p>
+      {% else %}
+        <p class="proposal-viewport__empty">
+          N/A — Fundamental-MCP nicht erreichbar oder kein Cache-Fallback.
+        </p>
+      {% endif %}
+    </section>
+
+    {# ── Column 3 — Risk Gate ──────────────────────────────── #}
+    <section class="proposal-viewport__column">
+      <h4 class="proposal-viewport__col-title">Risk Gate</h4>
+      {% if proposal.risk_gate_result %}
+        {% set level = proposal.risk_gate_result.value %}
+        <p class="proposal-viewport__rg-level proposal-viewport__rg-level--{{ level }}">
+          ● {{ level | upper }}
+        </p>
+        {% if proposal.risk_gate_response %}
+          {% set flags = proposal.risk_gate_response.get("flags") or [] %}
+          {% if flags %}
+            <ul class="proposal-viewport__flags">
+              {% for flag in flags %}
+                <li>{{ flag }}</li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="proposal-viewport__no-flags">Keine Flags.</p>
+          {% endif %}
+          <p class="proposal-viewport__rg-agent">
+            Agent: {{ proposal.risk_gate_response.get("agent_id") or "—" }}
+          </p>
+        {% endif %}
+      {% else %}
+        <p class="proposal-viewport__empty">Risk-Gate noch nicht ausgeführt.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  {# ── Footer — Decision Point ─────────────────────────────── #}
+  <footer class="proposal-viewport__footer">
+    <form
+      class="proposal-viewport__decision-form"
+      hx-post="/proposals/{{ proposal.id }}/approve"
+      hx-target="#proposal-card-{{ proposal.id }}"
+      hx-swap="outerHTML"
+    >
+      <label class="proposal-viewport__field">
+        <span class="form-label">Risk Budget ($)</span>
+        <input type="number" name="risk_budget" min="0" step="0.01"
+               value="{{ proposal.risk_budget }}"
+               class="proposal-viewport__input">
+      </label>
+      <label class="proposal-viewport__checkbox">
+        <input type="checkbox" name="overrode_fundamental">
+        <span>Override Fundamental</span>
+      </label>
+      <input type="hidden" name="notes" value="">
+
+      {% if proposal.is_red %}
+        <button
+          type="button"
+          class="proposal-viewport__btn proposal-viewport__btn--blocked"
+          disabled
+          aria-describedby="rg-block-reason-{{ proposal.id }}"
+        >Approve <kbd>A</kbd></button>
+        <p id="rg-block-reason-{{ proposal.id }}" class="proposal-viewport__block-reason">
+          {% if proposal.risk_gate_result.value == "red" %}
+            Risk-Gate blockiert
+            ({{ (proposal.risk_gate_response.get("flags") if proposal.risk_gate_response else []) | join(", ") or "RED" }})
+          {% else %}
+            Risk-Gate unreachable — Approval gesperrt
+          {% endif %}
+        </p>
+      {% else %}
+        <button
+          type="submit"
+          class="proposal-viewport__btn proposal-viewport__btn--approve"
+          data-shortcut="approve"
+        >Approve <kbd>A</kbd></button>
+      {% endif %}
+
+      <button
+        type="button"
+        class="proposal-viewport__btn proposal-viewport__btn--reject"
+        data-shortcut="reject"
+        hx-post="/proposals/{{ proposal.id }}/reject"
+        hx-target="#proposal-card-{{ proposal.id }}"
+        hx-swap="outerHTML"
+      >Reject <kbd>R</kbd></button>
+
+      <button
+        type="button"
+        class="proposal-viewport__btn proposal-viewport__btn--revision"
+        hx-post="/proposals/{{ proposal.id }}/revision"
+        hx-target="#proposal-card-{{ proposal.id }}"
+        hx-swap="outerHTML"
+      >Revision</button>
+    </form>
+  </footer>
 </div>
+
+<style>
+  .proposal-viewport { display: flex; flex-direction: column; gap: var(--space-3); }
+  .proposal-viewport__columns {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--space-3);
+  }
+  @media (max-width: 1100px) {
+    .proposal-viewport__columns { grid-template-columns: 1fr; }
+  }
+  .proposal-viewport__column {
+    padding: var(--space-3);
+    background-color: var(--bg-void);
+    border: 1px solid var(--border-subtle);
+  }
+  .proposal-viewport__col-title {
+    margin: 0 0 var(--space-2);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+  }
+  .proposal-viewport__field-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-1) var(--space-3);
+    margin: 0 0 var(--space-2);
+  }
+  .proposal-viewport__field-grid div { display: flex; flex-direction: column; gap: 2px; }
+  .proposal-viewport__field-grid dt {
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .proposal-viewport__field-grid dd {
+    margin: 0;
+    color: var(--text-primary);
+    font-size: var(--font-size-small);
+  }
+  .proposal-viewport__thesis {
+    margin: 0;
+    font-size: var(--font-size-small);
+    color: var(--text-secondary);
+    font-style: italic;
+  }
+  .proposal-viewport__empty { color: var(--text-muted); font-style: italic; font-size: var(--font-size-small); }
+
+  .proposal-viewport__rg-level {
+    font-size: var(--font-size-section);
+    margin: 0 0 var(--space-2);
+    font-weight: 600;
+  }
+  .proposal-viewport__rg-level--green { color: var(--color-win, #3fb950); }
+  .proposal-viewport__rg-level--yellow { color: var(--status-yellow, #f59e0b); }
+  .proposal-viewport__rg-level--red,
+  .proposal-viewport__rg-level--unreachable { color: var(--color-loss, #f85149); }
+  .proposal-viewport__flags {
+    list-style: none;
+    padding: 0;
+    margin: 0 0 var(--space-2);
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+  .proposal-viewport__flags li {
+    font-size: var(--font-size-label);
+    background: rgba(245, 158, 11, 0.15);
+    color: var(--status-yellow);
+    padding: 2px var(--space-2);
+  }
+  .proposal-viewport__no-flags { color: var(--text-muted); font-size: var(--font-size-small); }
+  .proposal-viewport__rg-agent { color: var(--text-muted); font-size: var(--font-size-label); margin: 0; }
+
+  .proposal-viewport__staleness {
+    margin: var(--space-2) 0 0;
+    color: var(--text-muted);
+    font-size: var(--font-size-label);
+  }
+  .proposal-viewport__stale-badge {
+    display: inline-block;
+    padding: 1px 6px;
+    margin-right: var(--space-1);
+    background: rgba(245, 158, 11, 0.2);
+    color: var(--status-yellow);
+    text-transform: uppercase;
+    font-size: 10px;
+    letter-spacing: 0.05em;
+  }
+
+  .proposal-viewport__footer {
+    border-top: 2px solid var(--accent);
+    padding-top: var(--space-3);
+  }
+  .proposal-viewport__decision-form {
+    display: flex;
+    align-items: end;
+    gap: var(--space-3);
+    flex-wrap: wrap;
+  }
+  .proposal-viewport__field { display: flex; flex-direction: column; gap: 2px; }
+  .proposal-viewport__input {
+    width: 120px;
+    background: var(--bg-void);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-1) var(--space-2);
+  }
+  .proposal-viewport__checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-small);
+    color: var(--text-secondary);
+  }
+  .proposal-viewport__btn {
+    padding: var(--space-2) var(--space-4);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    cursor: pointer;
+    font-weight: 600;
+    border: 1px solid transparent;
+  }
+  .proposal-viewport__btn kbd {
+    display: inline-block;
+    padding: 1px 5px;
+    margin-left: var(--space-1);
+    background: rgba(0, 0, 0, 0.25);
+    border-radius: 2px;
+    font-size: 10px;
+    font-family: var(--font-mono, monospace);
+  }
+  .proposal-viewport__btn--approve {
+    background-color: var(--color-win, #3fb950);
+    color: var(--bg-void);
+    border-color: var(--color-win, #3fb950);
+  }
+  .proposal-viewport__btn--approve:hover { filter: brightness(1.15); }
+  .proposal-viewport__btn--reject {
+    background-color: transparent;
+    color: var(--color-loss, #f85149);
+    border-color: var(--color-loss, #f85149);
+  }
+  .proposal-viewport__btn--reject:hover {
+    background-color: rgba(248, 81, 73, 0.15);
+  }
+  .proposal-viewport__btn--revision {
+    background-color: transparent;
+    color: var(--text-secondary);
+    border-color: var(--border-default);
+  }
+  .proposal-viewport__btn--blocked {
+    background-color: rgba(120, 120, 120, 0.2);
+    color: var(--text-muted);
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+  .proposal-viewport__block-reason {
+    color: var(--color-loss, #f85149);
+    font-size: var(--font-size-label);
+    margin: 0;
+  }
+</style>
 {% endmacro %}

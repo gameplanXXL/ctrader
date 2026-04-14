@@ -28,6 +28,7 @@ from app.db.migrate import run_migrations
 from app.db.pool import close_pool, create_pool
 from app.logging import configure_logging, get_logger
 from app.routers import api as api_router
+from app.routers import approvals as approvals_router
 from app.routers import debug as debug_router
 from app.routers import pages as pages_router
 from app.routers import strategies as strategies_router
@@ -146,6 +147,9 @@ app.include_router(trades_router.router)
 
 # Strategy CRUD + list/detail pages (Epic 6).
 app.include_router(strategies_router.router)
+
+# Approval pipeline + risk gate (Epic 7).
+app.include_router(approvals_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)

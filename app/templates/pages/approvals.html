@@ -1,12 +1,152 @@
 {% extends "base.html" %}
+{% from "components/status_badge.html" import status_badge %}
+
 {% block title %}Approvals · ctrader{% endblock %}
+
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Approvals</h1>
-  <p class="page-placeholder">Coming soon — Epic 7 (Approval-Pipeline &amp; Risk-Gate).</p>
+<section class="approvals-page">
+  <header class="approvals-page__header">
+    <h1 class="page-title">Approvals</h1>
+    <div class="approvals-page__meta">
+      <span class="tabular">{{ proposals | length }} pending</span>
+    </div>
+  </header>
+
+  {% if db_error %}
+    <div class="approvals-page__error" role="alert">
+      ⚠ Proposal-Daten konnten nicht geladen werden (DB-Fehler).
+    </div>
+  {% endif %}
+
+  {% if not proposals %}
+    <div class="approvals-page__empty">
+      <p>Keine offenen Proposals.</p>
+      <p class="approvals-page__empty-hint">Bot-generierte Proposals erscheinen hier sobald Epic 8 die Bot-Execution wired.</p>
+    </div>
+  {% else %}
+    <div class="proposal-list">
+      {% for p in proposals %}
+        <article class="proposal-card" id="proposal-card-{{ p.id }}">
+          <header class="proposal-card__header">
+            <div>
+              <h3 class="proposal-card__title">
+                #{{ p.id }} · {{ p.agent_id | title }} · {{ p.symbol }}
+              </h3>
+              <p class="proposal-card__meta">
+                {{ p.side.value | upper }} · {{ p.horizon.value }} · {{ p.asset_class | upper }}
+                · Size {{ p.position_size }} @ {{ p.entry_price }}
+                {% if p.stop_price %} · Stop {{ p.stop_price }}{% endif %}
+                {% if p.target_price %} · Target {{ p.target_price }}{% endif %}
+              </p>
+            </div>
+            <div class="proposal-card__risk">
+              {% if p.risk_gate_result %}
+                {% set rg_label = p.risk_gate_result.value | upper %}
+                {% if p.risk_gate_result.value == "green" %}
+                  {{ status_badge("active", label="Risk Gate: " ~ rg_label) }}
+                {% elif p.risk_gate_result.value == "yellow" %}
+                  {{ status_badge("paused", label="Risk Gate: " ~ rg_label) }}
+                {% else %}
+                  {{ status_badge("retired", label="Risk Gate: " ~ rg_label) }}
+                {% endif %}
+              {% else %}
+                {{ status_badge("unknown", label="Risk Gate: pending") }}
+              {% endif %}
+            </div>
+          </header>
+
+          <button
+            type="button"
+            class="proposal-card__expand-btn"
+            hx-get="/proposals/{{ p.id }}/drilldown"
+            hx-target="#proposal-drilldown-{{ p.id }}"
+            hx-swap="innerHTML"
+          >Review →</button>
+
+          <div id="proposal-drilldown-{{ p.id }}" class="proposal-card__drilldown"></div>
+        </article>
+      {% endfor %}
+    </div>
+  {% endif %}
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  .approvals-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .approvals-page__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .approvals-page__meta { color: var(--text-muted); font-size: var(--font-size-small); }
+  .approvals-page__error {
+    padding: var(--space-3) var(--space-4);
+    background-color: rgba(239, 68, 68, 0.1);
+    border-left: 4px solid var(--color-loss, #ef4444);
+    color: var(--color-loss, #ef4444);
+    font-size: var(--font-size-small);
+  }
+  .approvals-page__empty {
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-muted);
+    border: 1px dashed var(--border-subtle);
+  }
+  .approvals-page__empty-hint { color: var(--text-muted); font-size: var(--font-size-small); }
+
+  .proposal-list { display: flex; flex-direction: column; gap: var(--space-3); }
+  .proposal-card {
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-3) var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .proposal-card__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .proposal-card__title { margin: 0; font-size: var(--font-size-section); }
+  .proposal-card__meta { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--font-size-small); }
+  .proposal-card__expand-btn {
+    align-self: flex-start;
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border-default);
+    padding: 2px var(--space-3);
+    font-size: var(--font-size-small);
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .proposal-card__expand-btn:hover { border-color: var(--accent); }
+  .proposal-card__drilldown:not(:empty) {
+    margin-top: var(--space-3);
+    padding-top: var(--space-3);
+    border-top: 1px solid var(--border-subtle);
+  }
 </style>
+
+<script>
+  /* Story 7.4 keyboard shortcuts: A=approve, R=reject. Active only
+     when a proposal drilldown is currently open. */
+  document.addEventListener("keydown", function (evt) {
+    if (evt.target && (evt.target.tagName === "INPUT" || evt.target.tagName === "TEXTAREA")) {
+      return;
+    }
+    var key = (evt.key || "").toLowerCase();
+    if (key !== "a" && key !== "r") return;
+    var openDrilldown = document.querySelector(".proposal-card__drilldown:not(:empty)");
+    if (!openDrilldown) return;
+    var selector = key === "a" ? '[data-shortcut="approve"]' : '[data-shortcut="reject"]';
+    var btn = openDrilldown.querySelector(selector);
+    if (btn) {
+      evt.preventDefault();
+      btn.click();
+    }
+  });
+</script>
 {% endblock %}
