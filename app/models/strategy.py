@@ -73,6 +73,11 @@ class Strategy(StrategyBase):
     """A strategy row as it lives in the DB."""
 
     id: int
+    # Story 10.3 / Code-review M5 / EC-19: optional FK to
+    # gordon_snapshots(id) populated when Chef created this strategy
+    # from a Gordon HOT-pick. Strategy detail view can render
+    # "Erstellt aus Gordon-Snapshot #X" when non-null.
+    source_snapshot_id: int | None = None
     created_at: datetime
     updated_at: datetime
 

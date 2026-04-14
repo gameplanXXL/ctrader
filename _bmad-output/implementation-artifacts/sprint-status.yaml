@@ -134,10 +134,10 @@ development_status:
   # =========================================================================
   # EPIC 10: Gordon Trend-Radar
   # =========================================================================
-  epic-10: review  # Yolo-mode implementation 2026-04-14 — gordon snapshots + diff + strategy prefill
-  10-1-gordon-weekly-fetch: review
-  10-2-gordon-diff-hot-picks: review
-  10-3-strategy-candidate-from-hot-pick: review  # weekly cron registration pending Story 11.1 APScheduler framework
+  epic-10: done  # Tranche A applied 2026-04-14 (14 patches); D214 decision-blocking — fundamental MCP has no trend_radar tool yet
+  10-1-gordon-weekly-fetch: done  # stub-compatible; needs Chef decision on D214 + Story 11.1 cron
+  10-2-gordon-diff-hot-picks: done
+  10-3-strategy-candidate-from-hot-pick: done
 
   # =========================================================================
   # EPIC 11: System-Health & Scheduled Operations (swapped with old Epic 12 on 2026-04-14)

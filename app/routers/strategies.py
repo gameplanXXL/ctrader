@@ -112,6 +112,15 @@ async def strategies_page(
             logger.exception("strategies_page.db_error", error=str(exc))
             db_error = True
 
+    # Code-review H8 / BH-16: a URL with a literal `prefill_horizon=None`
+    # string (hand-crafted or built from a template that didn't guard
+    # `pick.horizon`) would leak the text "None" into the form name
+    # (`"NVDA (None)"`). Coerce string "None" to actual None before use.
+    if prefill_symbol == "None":
+        prefill_symbol = None
+    if prefill_horizon == "None":
+        prefill_horizon = None
+
     prefill: dict[str, Any] | None = None
     if prefill_symbol or prefill_horizon or prefill_source_snapshot_id:
         name = (
@@ -119,13 +128,17 @@ async def strategies_page(
             if prefill_symbol and prefill_horizon
             else (prefill_symbol or "")
         )
+        # Code-review H5 / EC-1: the trigger-source taxonomy id for
+        # Gordon is `gordon_hot_pick`, not `gordon`. The previous value
+        # never matched any taxonomy entry so the checkbox was never
+        # pre-checked AND the phantom literal "gordon" would land in
+        # `strategies.trigger_sources` with no downstream cross-reference.
         prefill = {
             "name": name,
             "symbol": prefill_symbol,
             "horizon": prefill_horizon,
             "source_snapshot_id": prefill_source_snapshot_id,
-            # Gordon is the only prefill source today.
-            "trigger_sources": ["gordon"] if prefill_source_snapshot_id else [],
+            "trigger_sources": ["gordon_hot_pick"] if prefill_source_snapshot_id else [],
         }
 
     context: dict[str, Any] = {
@@ -216,9 +229,25 @@ async def create_strategy_route(request: Request):
     db_pool = await _require_pool(request)
     import asyncpg as _asyncpg
 
+    # Code-review H3 / BH-9 / EC-4: wrap INSERT + linkage UPDATE in a
+    # single transaction so a missing snapshot (FK violation) or a
+    # pre-migration-015 deployment (UndefinedColumnError) rolls back
+    # cleanly instead of leaving an orphaned strategy row.
     async with db_pool.acquire() as conn:
         try:
-            strategy = await create_strategy(conn, payload)
+            async with conn.transaction():
+                strategy = await create_strategy(conn, payload)
+                if source_snapshot_id is not None:
+                    await conn.execute(
+                        "UPDATE strategies SET source_snapshot_id = $1 WHERE id = $2",
+                        source_snapshot_id,
+                        strategy.id,
+                    )
+                    logger.info(
+                        "strategy.linked_to_snapshot",
+                        strategy_id=strategy.id,
+                        source_snapshot_id=source_snapshot_id,
+                    )
         except _asyncpg.UniqueViolationError as exc:
             # Code-review H3 / BH-4 / EC-15: name UNIQUE → 409 with a
             # readable message instead of a 500 that just says
@@ -232,28 +261,28 @@ async def create_strategy_route(request: Request):
                 status_code=409,
                 detail=f"Strategie '{payload.name}' existiert bereits",
             ) from None
+        except _asyncpg.ForeignKeyViolationError:
+            # Code-review M2 / BH-10: snapshot pruned mid-flight. Retry
+            # the CREATE without the linkage so the strategy still lands.
+            logger.warning(
+                "strategy.source_snapshot_missing",
+                source_snapshot_id=source_snapshot_id,
+            )
+            async with conn.transaction():
+                strategy = await create_strategy(conn, payload)
+        except _asyncpg.UndefinedColumnError as exc:
+            # Migration 015 not applied on this deployment. Log a
+            # distinct hint so the operator doesn't chase a generic 500.
+            logger.error(
+                "strategy.source_snapshot_column_missing",
+                error=str(exc),
+                hint="Migration 015_strategies_source_snapshot.sql not applied",
+            )
+            async with conn.transaction():
+                strategy = await create_strategy(conn, payload)
         except Exception as exc:  # noqa: BLE001
             logger.warning("strategy.create_failed", error=str(exc))
             raise HTTPException(status_code=500, detail="could not create strategy") from None
-
-        if source_snapshot_id is not None:
-            try:
-                await conn.execute(
-                    "UPDATE strategies SET source_snapshot_id = $1 WHERE id = $2",
-                    source_snapshot_id,
-                    strategy.id,
-                )
-                logger.info(
-                    "strategy.linked_to_snapshot",
-                    strategy_id=strategy.id,
-                    source_snapshot_id=source_snapshot_id,
-                )
-            except _asyncpg.ForeignKeyViolationError:
-                logger.warning(
-                    "strategy.source_snapshot_missing",
-                    strategy_id=strategy.id,
-                    source_snapshot_id=source_snapshot_id,
-                )
 
     # Code-review M6 / BH-27 / EC-22: HX-Redirect lets HTMX navigate
     # the browser AND deliver the showToast trigger. A plain

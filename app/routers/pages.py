@@ -486,10 +486,14 @@ async def trends_page(request: Request):
             asyncpg.UndefinedTableError,
             asyncpg.UndefinedColumnError,
         ) as exc:
+            # Code-review M6 / BH-15: the regime hero also needs
+            # migrations 012/013 from Epic 9. Broaden the operator hint
+            # so a missing regime column doesn't mislead an operator
+            # into only checking 014/015.
             logger.error(
                 "pages.trends.migration_missing",
                 error=str(exc),
-                hint="run `uv run python -m app.db.migrate` to apply migrations 014/015",
+                hint="run `uv run python -m app.db.migrate` to apply migrations 012-015",
             )
             db_error = True
         except Exception as exc:  # noqa: BLE001

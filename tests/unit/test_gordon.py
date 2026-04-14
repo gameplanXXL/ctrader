@@ -224,6 +224,21 @@ async def test_fetch_gordon_trend_radar_mcp_error_response() -> None:
     assert "mcp_error" in err
 
 
+async def test_fetch_gordon_trend_radar_ignores_null_error_key() -> None:
+    """Code-review H1 / BH-3: `{"error": null}` used to be mistaken for
+    a real MCP error. A null `error` key means success."""
+
+    mcp = AsyncMock()
+    mcp.call_tool.return_value = {
+        "error": None,
+        "result": {"hot_picks": [{"symbol": "NVDA"}]},
+    }
+    snapshot, picks, err = await fetch_gordon_trend_radar(mcp)
+    assert snapshot is not None
+    assert len(picks) == 1
+    assert err is None
+
+
 # ---------------------------------------------------------------------------
 # persist_snapshot / fetch_and_persist
 # ---------------------------------------------------------------------------
@@ -277,6 +292,30 @@ async def test_fetch_and_persist_happy_path_populates_picks() -> None:
     assert len(snapshot.hot_picks) == 2
 
 
+async def test_persist_snapshot_drops_malformed_picks_without_crashing() -> None:
+    """Code-review H2 / BH-19: a malformed pick (missing symbol) must
+    NOT take down the entire snapshot persist. AC #3 "never drop a
+    day" requires that the snapshot row is still written with whatever
+    picks survived validation.
+    """
+
+    conn = _FakeConn()
+    snapshot = await persist_snapshot(
+        conn,
+        snapshot_data={"result": {"x": 1}},
+        hot_picks=[
+            {"symbol": "NVDA", "rank": 1},
+            {"rank": 2, "thesis": "missing symbol field"},  # invalid
+            {"symbol": "", "rank": 3},  # invalid (empty symbol)
+            {"symbol": "BTCUSD", "rank": 4},
+        ],
+        source_error=None,
+    )
+    assert snapshot.id == 42
+    assert len(snapshot.hot_picks) == 2  # two valid survived
+    assert {p.symbol for p in snapshot.hot_picks} == {"NVDA", "BTCUSD"}
+
+
 # ---------------------------------------------------------------------------
 # compute_diff
 # ---------------------------------------------------------------------------
@@ -323,4 +362,23 @@ def test_compute_diff_identical_lists_all_unchanged() -> None:
     diff = compute_diff(lst, lst)
     assert len(diff.unchanged) == 2
     assert diff.new == []
+    assert diff.dropped == []
+
+
+def test_compute_diff_keyed_by_symbol_and_horizon() -> None:
+    """Code-review H6 / EC-12: a symbol appearing at a NEW horizon is
+    correctly classified as `new`, not silently collapsed into
+    `unchanged` alongside the older horizon.
+    """
+
+    current = [
+        HotPick(symbol="NVDA", horizon="swing_short"),
+        HotPick(symbol="NVDA", horizon="swing_long"),
+    ]
+    previous = [HotPick(symbol="NVDA", horizon="swing_short")]
+    diff = compute_diff(current, previous)
+    assert len(diff.new) == 1
+    assert diff.new[0].horizon == "swing_long"
+    assert len(diff.unchanged) == 1
+    assert diff.unchanged[0].horizon == "swing_short"
     assert diff.dropped == []

@@ -49,6 +49,7 @@ RETURNING id, name, asset_class, horizon::text, typical_holding_period,
 _GET_SQL = """
 SELECT id, name, asset_class, horizon::text, typical_holding_period,
        trigger_sources, risk_budget_per_trade, status::text,
+       source_snapshot_id,
        created_at, updated_at
   FROM strategies
  WHERE id = $1
@@ -57,6 +58,7 @@ SELECT id, name, asset_class, horizon::text, typical_holding_period,
 _LIST_SQL = """
 SELECT id, name, asset_class, horizon::text, typical_holding_period,
        trigger_sources, risk_budget_per_trade, status::text,
+       source_snapshot_id,
        created_at, updated_at
   FROM strategies
  ORDER BY
@@ -103,6 +105,15 @@ def _row_to_strategy(row: asyncpg.Record) -> Strategy:
     if not isinstance(trigger_sources_raw, list):
         trigger_sources_raw = []
 
+    # `source_snapshot_id` is only in _GET_SQL / _LIST_SQL (added by
+    # code-review M5 / EC-19). `_INSERT_SQL` RETURNING doesn't include
+    # it — fall back to None when absent so create_strategy still
+    # hydrates cleanly.
+    try:
+        source_snapshot_id = row["source_snapshot_id"]
+    except (KeyError, IndexError):
+        source_snapshot_id = None
+
     return Strategy(
         id=int(row["id"]),
         name=str(row["name"]),
@@ -112,6 +123,7 @@ def _row_to_strategy(row: asyncpg.Record) -> Strategy:
         trigger_sources=[str(x) for x in trigger_sources_raw],
         risk_budget_per_trade=Decimal(str(row["risk_budget_per_trade"])),
         status=row["status"],
+        source_snapshot_id=source_snapshot_id,
         created_at=row["created_at"],
         updated_at=row["updated_at"],
     )

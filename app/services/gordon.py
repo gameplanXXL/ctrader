@@ -19,10 +19,12 @@ Owns:
 
 from __future__ import annotations
 
+import asyncio
 import json
 from typing import Any
 
 import asyncpg
+from pydantic import ValidationError
 
 from app.clients.mcp import MCPClient
 from app.logging import get_logger
@@ -31,6 +33,17 @@ from app.models.gordon import GordonDiff, GordonSnapshot, HotPick
 logger = get_logger(__name__)
 
 
+# TODO / CLAUDE.md contract gap (Epic 10 code-review EC-2 / EC-3, D214):
+# `/home/cneise/Project/fundamental` currently exposes only `crypto`,
+# `fundamentals`, `news`, `price`, `search` — there is NO `trend_radar`
+# tool and NO `gordon` agent routing on the MCP side. Every
+# `fetch_gordon_trend_radar` call therefore lands in the `source_error`
+# path (always-write contract preserved). The `/trends` page shows a
+# red "MCP-Fetch-Fehler" banner and an empty hot-picks list until either
+# (a) fundamental adds a `trend_radar` tool, or (b) Chef decides to
+# point Story 10.1 at a different data source (e.g. a scheduled scraper
+# of the public Gordon blog). This constant is the single-point-of-
+# change when that decision is made.
 _GORDON_TOOL_NAME = "trend_radar"
 
 
@@ -97,11 +110,17 @@ async def fetch_gordon_trend_radar(
 
     try:
         response = await mcp_client.call_tool(_GORDON_TOOL_NAME, arguments={"agent": "gordon"})
+    except asyncio.CancelledError:
+        raise
     except Exception as exc:  # noqa: BLE001 — graceful degradation
-        logger.warning("gordon.fetch_failed", error=str(exc))
+        logger.warning("gordon.fetch_failed", error=str(exc), exc_info=True)
         return None, [], f"{type(exc).__name__}: {exc}"
 
-    if "error" in response:
+    # Code-review H1 / BH-3: `"error" in response` was True even for
+    # `{"error": null}` shapes, misreporting successful calls as MCP
+    # errors. Use a truthy check so only a non-null, non-empty error
+    # object triggers the failure path.
+    if response.get("error"):
         logger.warning("gordon.fetch.mcp_error", error=response["error"])
         return None, [], f"mcp_error: {response['error']}"
 
@@ -163,6 +182,39 @@ def _row_to_snapshot(row: asyncpg.Record | None) -> GordonSnapshot | None:
     )
 
 
+def _validate_picks_tolerant(
+    raw_picks: list[dict[str, Any]],
+) -> tuple[list[HotPick], int]:
+    """Validate each pick independently, dropping malformed entries.
+
+    Code-review H2 / BH-19: the previous list-comprehension
+    `[HotPick.model_validate(p) for p in hot_picks]` crashed the entire
+    `persist_snapshot` call when a single malformed pick slipped through
+    — directly violating Story 10.1 AC #3 "never drop a day". Now we
+    validate one at a time, log each drop with its offending payload,
+    and persist whatever survived. The raw `snapshot_data` blob is
+    written regardless so the operator can forensically replay the
+    malformed day from the snapshot-data column.
+
+    Returns `(valid_picks, dropped_count)`.
+    """
+
+    valid: list[HotPick] = []
+    dropped = 0
+    for index, raw in enumerate(raw_picks):
+        try:
+            valid.append(HotPick.model_validate(raw))
+        except (ValidationError, TypeError, ValueError) as exc:
+            dropped += 1
+            logger.warning(
+                "gordon.pick.malformed_dropped",
+                index=index,
+                error=str(exc),
+                raw_keys=sorted(raw.keys()) if isinstance(raw, dict) else None,
+            )
+    return valid, dropped
+
+
 async def persist_snapshot(
     conn: asyncpg.Connection,
     *,
@@ -175,19 +227,26 @@ async def persist_snapshot(
     `_INSERT_SNAPSHOT_SQL` only RETURNs id + created_at — we hydrate
     the `GordonSnapshot` from those two columns plus the values we
     just passed in. Avoids a second round-trip.
+
+    Validates picks tolerantly — see `_validate_picks_tolerant` for
+    the rationale.
     """
+
+    valid_picks, dropped_count = _validate_picks_tolerant(hot_picks)
 
     row = await conn.fetchrow(
         _INSERT_SNAPSHOT_SQL,
         snapshot_data or {},
-        hot_picks,
+        hot_picks,  # raw blob goes into JSONB even if validation dropped some
         source_error,
     )
-    assert row is not None, "INSERT ... RETURNING returned no row"
+    if row is None:
+        raise RuntimeError("INSERT ... RETURNING returned no row")
+
     snapshot = GordonSnapshot(
         id=row["id"],
         snapshot_data=snapshot_data or {},
-        hot_picks=[HotPick.model_validate(p) for p in hot_picks],
+        hot_picks=valid_picks,
         source_error=source_error,
         created_at=row["created_at"],
     )
@@ -195,6 +254,7 @@ async def persist_snapshot(
         "gordon.snapshot.persisted",
         snapshot_id=snapshot.id,
         hot_picks_count=len(snapshot.hot_picks),
+        dropped_count=dropped_count,
         has_error=snapshot.source_error is not None,
     )
     return snapshot
@@ -255,27 +315,45 @@ async def get_snapshot_by_id(conn: asyncpg.Connection, snapshot_id: int) -> Gord
 # ---------------------------------------------------------------------------
 
 
-def compute_diff(current: list[HotPick], previous: list[HotPick] | None) -> GordonDiff:
-    """Symbol-keyed diff between two HOT-pick lists.
+def _pick_key(pick: HotPick) -> tuple[str, str | None]:
+    """Composite key for diffing — includes horizon so a symbol that
+    appears at a new horizon (e.g. NVDA was swing_short last week, now
+    also at swing_long) is correctly reported as NEW rather than
+    unchanged (code-review H6 / EC-12).
+    """
 
-    - `new`: picks in `current` whose symbol is not in `previous`
-    - `dropped`: picks in `previous` whose symbol is not in `current`
-    - `unchanged`: picks in `current` whose symbol IS in `previous`
+    return (pick.symbol, pick.horizon)
+
+
+def compute_diff(current: list[HotPick], previous: list[HotPick] | None) -> GordonDiff:
+    """Diff between two HOT-pick lists, keyed by (symbol, horizon).
+
+    - `new`: picks in `current` whose (symbol, horizon) is not in `previous`
+    - `dropped`: picks in `previous` whose (symbol, horizon) is not in `current`
+    - `unchanged`: picks in `current` whose (symbol, horizon) IS in `previous`
 
     Notes:
-    - A symbol that merely moved rank or changed thesis is `unchanged`.
-    - `previous=None` → every current pick is `new`.
+    - A pick that merely changed rank, confidence, thesis, entry_zone,
+      or target is `unchanged` — only the (symbol, horizon) tuple
+      matters for bucket assignment.
+    - `previous=None` or `previous=[]` → every current pick is `new`.
+
+    Code-review H6 / EC-12: the previous implementation used
+    `{p.symbol for p in ...}` which deduplicated multi-horizon entries
+    for the same symbol. Chef saw a brand-new swing_long NVDA reported
+    as "unchanged" alongside the swing_short carry, obscuring the
+    actual week-over-week change.
     """
 
     if not previous:
         return GordonDiff(new=list(current), dropped=[], unchanged=[])
 
-    current_symbols = {p.symbol for p in current}
-    previous_symbols = {p.symbol for p in previous}
+    current_keys = {_pick_key(p) for p in current}
+    previous_keys = {_pick_key(p) for p in previous}
 
-    new_picks = [p for p in current if p.symbol not in previous_symbols]
-    dropped_picks = [p for p in previous if p.symbol not in current_symbols]
-    unchanged_picks = [p for p in current if p.symbol in previous_symbols]
+    new_picks = [p for p in current if _pick_key(p) not in previous_keys]
+    dropped_picks = [p for p in previous if _pick_key(p) not in current_keys]
+    unchanged_picks = [p for p in current if _pick_key(p) in previous_keys]
 
     return GordonDiff(
         new=new_picks,

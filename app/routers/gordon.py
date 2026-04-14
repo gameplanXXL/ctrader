@@ -29,7 +29,13 @@ async def post_gordon_fetch(request: Request) -> JSONResponse:
     is honored by `fetch_and_persist`, which still writes a row with
     an empty hot_picks array and a populated `source_error` so the
     weekly heartbeat stays durable.
+
+    Code-review H4 / BH-23: DB-layer failures (connection loss,
+    migration 014 missing) used to leak 500s with a Python traceback
+    in the JSON body. Now wrapped in try/except → structured 503.
     """
+
+    import asyncpg
 
     db_pool = getattr(request.app.state, "db_pool", None)
     if db_pool is None or not hasattr(db_pool, "acquire"):
@@ -37,7 +43,24 @@ async def post_gordon_fetch(request: Request) -> JSONResponse:
 
     mcp_client = getattr(request.app.state, "mcp_client", None)
 
-    snapshot = await fetch_and_persist(db_pool, mcp_client)
+    try:
+        snapshot = await fetch_and_persist(db_pool, mcp_client)
+    except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError) as exc:
+        logger.error(
+            "gordon.fetch.migration_missing",
+            error=str(exc),
+            hint="run migrate to apply migration 014_gordon_snapshots.sql",
+        )
+        raise HTTPException(
+            status_code=503,
+            detail="gordon_snapshots table missing — apply migration 014",
+        ) from None
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("gordon.fetch.unexpected_failure", error=str(exc))
+        raise HTTPException(
+            status_code=503,
+            detail=f"gordon fetch failed: {type(exc).__name__}",
+        ) from None
 
     return JSONResponse(
         {

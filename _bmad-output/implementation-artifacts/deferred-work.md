@@ -315,3 +315,33 @@ This file is append-only — never delete entries, only mark them done.
 - **D211** No test for `evaluate_kill_switch` rolling back audit_log writes if PAUSE SQL raises mid-loop. With the new `conn.transaction()` wrap the rollback is in place; needs a failure-injection test to prove it. *Source: EC-18*
 - **D212** No test for Migration 013's CHECK constraint rejecting bogus `paused_by` values (e.g. 'kill-switch' with hyphen). *Source: BH-24*
 - **D213** No end-to-end test that a kill-switch-paused strategy refuses a new proposal via `create_proposal`. The Epic-6 `is_strategy_active()` + Epic-9 kill-switch integration is tested only via hand-probe smoke. *Source: EC interactions*
+
+## Epic 10 — Gordon Trend-Radar (deferred LOW + blocking dependency findings)
+
+### Cross-project contract gap (HIGH — needs decision)
+- **D214** **BLOCKING DEPENDENCY**: `/home/cneise/Project/fundamental` does NOT expose a `trend_radar` tool, and has no `gordon` agent routing. The current MCP tool list is `crypto, fundamentals, news, price, search`. Every `fetch_gordon_trend_radar` call lands in the `source_error` path ("unknown tool" or "invalid argument"), meaning the weekly Trends page will show an empty HOT-picks list forever with an "MCP-Fetch-Fehler" banner. The always-write contract is preserved (AC #3), but Epic 10 cannot actually pull real data without Chef deciding to either (a) build a `trend_radar` tool on the fundamental MCP side, or (b) point Story 10.1 at a different data source (scheduled scraper of Gordon's public blog, etc.). The TODO constant + comment block in `app/services/gordon.py::_GORDON_TOOL_NAME` documents the decision point. *Source: EC-2, EC-3*
+
+### UX polish
+- **D215** `trends.html` UNVERÄNDERT section renders the same heavyweight `<article>` as NEW/DROPPED, with per-pick thesis paragraph + rank + confidence. Story 10.2 AC #3 (UX-DR36) asks for the whole page to fit in 850px without scrolling; on a full week the UNCHANGED section overflows. A condensed inline list (`AAPL, MSFT, GOOGL, ETH, AVAX`) like the Story-10.2 mock shows would keep the page tight. *Source: Auditor 10.2 AC#3*
+- **D216** Cancel button in `strategy_form.html` hides the form but the URL still carries the prefill params; reloading re-opens it. Not a bug, surprising UX. *Source: BH-20*
+- **D217** `?selected=<id>` + `?prefill_*` query-param collision — the strategies page shows detail in the right pane AND auto-opens the prefill form. Mild UX edge case. *Source: EC-5*
+- **D218** Strategy detail fragment (`app/templates/fragments/strategy_detail.html`) does NOT render "Erstellt aus Gordon-Snapshot #X vom ..." for strategies with `source_snapshot_id`. The linkage plumbing is now in place (Epic 10 Tranche A M5: column is in the SELECT, model has the field) but the UI backlink is still unimplemented. Story 10.3 Task 5 follow-up. *Source: Auditor 10.3 recommendation*
+
+### Observability / defense in depth
+- **D219** `HotPick.is_stale` uses `datetime.now(self.created_at.tzinfo) - self.created_at`. Naive datetime via a test fixture or a schema drift would silently produce wrong arithmetic. Add a tz guard at the model validator level. *Source: BH-1*
+- **D220** `GordonSnapshot.has_error` returns True for an empty `hot_picks` list, conflating "MCP succeeded but market is quiet" with "something broke". The template currently uses only `source_error` so there's no live breakage, but future consumers of `has_error` will get false alarms. Split into `has_picks` / `has_error = bool(source_error)`. *Source: BH-2, EC-10*
+- **D221** No UNIQUE constraint on `DATE(created_at)` for `gordon_snapshots`. Rage-clicking the refresh button (or a misbehaving scheduled retry) creates N snapshots per day, destroying the week-over-week diff semantics. `hx-disabled-elt="find button"` (Tranche A M1) prevents double-click but doesn't stop concurrent requests from different tabs. Consider an expression index `UNIQUE (date_trunc('day', created_at))`. *Source: BH-5, EC-22*
+- **D222** `migrations/014_gordon_snapshots.sql` has a GIN index on `hot_picks` declared for "find strategy source by symbol". No current query uses it — it's write-amplification with no read benefit until a future story ships. Drop and re-add when needed. *Source: BH-8*
+- **D223** `_row_to_snapshot` has a defensive `isinstance(snapshot_data, str): json.loads(...)` branch that is dead under the registered JSONB codec. *Source: BH-6*
+- **D224** `HotPick.entry_zone: list[Decimal] | None` is too strict — Gordon (an LLM agent) could plausibly return `[{"low": 890, "high": 920}]` or a string `"890-920"`, rejected by Pydantic. Use `Any | None` or a tolerant `@field_validator(mode="before")`. *Source: BH-18*
+- **D225** `_parse_hot_picks` falls through to an empty list on unknown response shapes without recording a distinct `source_error` string, so "broken parse" looks indistinguishable from "zero HOT-picks this week". Return an error string when all paths fail. *Source: EC-22*
+- **D226** `fetch_gordon_trend_radar` checks top-level `response.get("error")` but not nested `result.isError` (an alternate JSON-RPC 2.0 error shape). *Source: EC-23*
+
+### Test coverage
+- **D227** No router-integration test for `trends_page` with various DB states (empty, one snapshot, two snapshots, migration missing). *Source: BH-21, EC — various*
+- **D228** No template render test for `strategy_form.html` with prefill data. *Source: BH-21*
+- **D229** No test that manually-triggered `POST /api/gordon/fetch` under pool pressure doesn't create duplicate same-minute snapshots. *Source: BH-5 follow-up*
+- **D230** No migration test for Migration 015's FK + ON DELETE SET NULL semantics (the Strategy row survives when the snapshot is pruned). *Source: BH-10 follow-up*
+
+### Deferred (legitimate)
+- **D231** Story 10.1 AC #2 cron scheduler registration is deferred to Story 11.1 (APScheduler framework). Manual trigger `POST /api/gordon/fetch` + the fetch-and-persist service contract are fully in place. Story 11.1 needs exactly one `scheduler.add_job(fetch_and_persist, CronTrigger(day_of_week='mon', hour=6, timezone='UTC'))` call. *Source: commit-message-explicit*

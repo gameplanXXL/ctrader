@@ -16,13 +16,69 @@
   {% endif %}
   {% if variant in ('new', 'unchanged') and pick.horizon and snapshot_id %}
     {# Story 10.3: link to /strategies?prefill=... so the strategies
-       page hydrates its create-form with the HOT-pick context. #}
+       page hydrates its create-form with the HOT-pick context.
+       Code-review M3 / BH-11 / EC-21: URL-encode every interpolated
+       component so symbols like `^GSPC` or horizons with special chars
+       can't break the query string. #}
     <a
       class="hot-pick__strategy-link"
-      href="/strategies?prefill_symbol={{ pick.symbol }}&prefill_horizon={{ pick.horizon }}&prefill_source_snapshot_id={{ snapshot_id }}"
+      href="/strategies?prefill_symbol={{ pick.symbol | urlencode }}&amp;prefill_horizon={{ pick.horizon | urlencode }}&amp;prefill_source_snapshot_id={{ snapshot_id }}"
     >Als Strategie anlegen →</a>
   {% endif %}
 </article>
+{% endmacro %}
+
+{% macro regime_hero_cards(regime, diff, previous) %}
+{# Code-review H7 / EC-14: the hero is rendered in BOTH the empty-state
+   branch (when Gordon has no snapshot yet) AND the populated-state
+   branch so Chef always sees F&G / VIX / Kill-Switch — they're useful
+   even without a Gordon time-series. #}
+<section class="trends-hero">
+  <article class="trends-hero__card">
+    <h2 class="trends-hero__label">WEEKLY-DELTA</h2>
+    <p class="trends-hero__value tabular">
+      {% if diff %}{{ diff.delta_summary }}{% else %}—{% endif %}
+    </p>
+    <p class="trends-hero__sub">
+      {% if previous %}vs Snapshot {{ previous.created_at | format_datetime }}
+      {% else %}Kein Vergleich{% endif %}
+    </p>
+  </article>
+
+  <article class="trends-hero__card">
+    <h2 class="trends-hero__label">FEAR &amp; GREED</h2>
+    <p class="trends-hero__value tabular">
+      {% if regime and regime.snapshot and regime.snapshot.fear_greed_index is not none %}
+        {{ regime.snapshot.fear_greed_index }}
+      {% else %}—{% endif %}
+    </p>
+    <p class="trends-hero__sub">
+      {% if regime and regime.snapshot %}{{ regime.fg_classification }}{% else %}Kein Snapshot{% endif %}
+    </p>
+  </article>
+
+  <article class="trends-hero__card">
+    <h2 class="trends-hero__label">VIX</h2>
+    <p class="trends-hero__value tabular">
+      {% if regime and regime.snapshot and regime.snapshot.vix is not none %}
+        {{ '%.2f' | format(regime.snapshot.vix | float) }}
+      {% else %}—{% endif %}
+    </p>
+    <p class="trends-hero__sub">Volatility Index</p>
+  </article>
+
+  <article class="trends-hero__card">
+    <h2 class="trends-hero__label">KILL-SWITCH</h2>
+    <p class="trends-hero__value {% if regime and regime.kill_switch_active %}trends-hero__value--alert{% endif %}">
+      {% if not regime or not regime.snapshot %}—
+      {% elif regime.kill_switch_active %}🔴 ACTIVE
+      {% else %}🟢 OFF{% endif %}
+    </p>
+    <p class="trends-hero__sub">
+      {% if regime and regime.snapshot %}{{ regime.paused_count }} paused{% else %}Kein Regime-Snapshot{% endif %}
+    </p>
+  </article>
+</section>
 {% endmacro %}
 
 {% block content %}
@@ -33,6 +89,7 @@
       class="trends-page__refresh"
       hx-post="/api/gordon/fetch"
       hx-swap="none"
+      hx-disabled-elt="find button"
       hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { this.querySelector('.trends-page__refresh-error').textContent = 'Fetch fehlgeschlagen (' + event.detail.xhr.status + ')'; }"
     >
       <button type="submit" class="btn-secondary" title="Gordon-Snapshot jetzt via MCP abrufen">
@@ -41,6 +98,10 @@
       <span class="trends-page__refresh-error" role="alert"></span>
     </form>
   </header>
+
+  {# Code-review H7 / EC-14: regime hero renders in BOTH branches so
+     F&G / VIX / Kill-Switch are visible even without Gordon data. #}
+  {{ regime_hero_cards(regime, diff, previous) }}
 
   {% if db_error %}
     <div class="trends-page__error" role="alert">
@@ -55,51 +116,6 @@
       </p>
     </div>
   {% else %}
-    {# ─── Hero ───────────────────────────────────────────────── #}
-    <section class="trends-hero">
-      <article class="trends-hero__card">
-        <h2 class="trends-hero__label">WEEKLY-DELTA</h2>
-        <p class="trends-hero__value tabular">
-          {% if diff %}{{ diff.delta_summary }}{% else %}—{% endif %}
-        </p>
-        <p class="trends-hero__sub">
-          {% if previous %}vs Snapshot {{ previous.created_at | format_datetime }}{% else %}Erster Snapshot{% endif %}
-        </p>
-      </article>
-
-      <article class="trends-hero__card">
-        <h2 class="trends-hero__label">FEAR &amp; GREED</h2>
-        <p class="trends-hero__value tabular">
-          {% if regime and regime.snapshot and regime.snapshot.fear_greed_index is not none %}
-            {{ regime.snapshot.fear_greed_index }}
-          {% else %}—{% endif %}
-        </p>
-        <p class="trends-hero__sub">
-          {% if regime %}{{ regime.fg_classification }}{% else %}Kein Snapshot{% endif %}
-        </p>
-      </article>
-
-      <article class="trends-hero__card">
-        <h2 class="trends-hero__label">VIX</h2>
-        <p class="trends-hero__value tabular">
-          {% if regime and regime.snapshot and regime.snapshot.vix is not none %}
-            {{ '%.2f' | format(regime.snapshot.vix | float) }}
-          {% else %}—{% endif %}
-        </p>
-        <p class="trends-hero__sub">Volatility Index</p>
-      </article>
-
-      <article class="trends-hero__card">
-        <h2 class="trends-hero__label">KILL-SWITCH</h2>
-        <p class="trends-hero__value {% if regime and regime.kill_switch_active %}trends-hero__value--alert{% endif %}">
-          {% if regime and regime.kill_switch_active %}🔴 ACTIVE{% else %}🟢 OFF{% endif %}
-        </p>
-        <p class="trends-hero__sub">
-          {% if regime %}{{ regime.paused_count }} paused{% else %}—{% endif %}
-        </p>
-      </article>
-    </section>
-
     {% if current.is_stale %}
       <div class="trends-page__warning" role="alert">
         ⚠ Snapshot ist älter als 7 Tage ({{ current.created_at | format_datetime }}) — Gordon-Job hat möglicherweise einen Run verpasst.
