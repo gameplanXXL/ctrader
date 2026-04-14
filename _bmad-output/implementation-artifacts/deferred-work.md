@@ -379,3 +379,40 @@ This file is append-only — never delete entries, only mark them done.
 - **D247** No test for `/api/health/dots` endpoint rendering the 3-dot fragment via TestClient. *Source: follow-up*
 - **D248** No test for `create_backup` streaming behavior against a real pg_dump (would need a testcontainer + real binary). *Source: follow-up*
 - **D249** No test for `create_backup` cleanup on OOM-kill or interrupted write (the `BaseException` cleanup path). Covered by inspection only. *Source: follow-up*
+
+## Epic 12 — IB Swing-Order Code Review (2026-04-14)
+
+### Model / real-adapter readiness
+- **D250 EC-4** `Trade` Pydantic model in `app/models/trade.py` has no `option_expiry/strike/right/multiplier` fields. Default `extra="ignore"` silently drops them on `Trade(**row)`. Fragile for future hydration callers. Add optional fields + backfill on upsert path. *Source: EC-4*
+- **D251 EC-5** Real `ib_async` adapter will emit Quick-Order fills through `ib.execDetailsEvent`, which `ib_live_sync.handle_execution` ALSO subscribes to — risking a race into the same `(broker, perm_id)` row with different enrichment semantics (raw INSERT vs weighted-avg `upsert_trade`). Must filter Quick-Order events by `order_ref` prefix `qo-*` OR route `handle_fill_event` through `upsert_trade`. *Source: EC-5*
+- **D252 EC-6** Quick-Order `handle_fill_event` doesn't accumulate partial fills — only `status='filled'` inserts a trade. For a real partial-fill stream, interim quantities are lost. Needs `quick_orders.partial_filled_qty` / `partial_avg_price` columns + aggregation on terminal `filled`. *Source: EC-6*
+
+### Semantics / policy
+- **D253 EC-9** `submit_quick_order` accepts `strategy_id` but never calls `is_strategy_active` or a FOR-UPDATE guard. A paused/retired strategy can still receive a Quick-Order trade. FR42 manual-exempt, but preview should show an "ACHTUNG: paused strategy" warning. *Source: EC-9*
+- **D254 EC-20** Short-option `side='sell'` writes `TradeSide.SELL`, not `TradeSide.SHORT`. Option P&L semantics may misinterpret (sell-to-open ≠ closing-long). Needs a P&L-formula review before remapping — could silently break existing pnl.py logic. *Source: EC-20*
+- **D255 EC-18** `_IB_ERROR_MAP[10318] = "Margin-Fehler — nicht genügend Buying Power"` is likely fabricated — real IB TWS uses code `201` + text pattern match. Harmless until real adapter lands. Cross-reference `ib_async` TWS API errors doc on first real integration. *Source: EC-18*
+
+### Form / UX polish
+- **D256 EC-12** Alpine `@keydown.window.prevent.s` + `.o` fire on every page that mounts the Quick-Order component. The `isTypable` guard only skips form inputs. Scope with `$el.offsetParent` visibility check OR switch to `@keydown.document.stop`. *Source: EC-12*
+- **D257 EC-13** `quick_order_form.html:13` uses `{{ {...} | tojson }}` inside a double-quoted `x-data` attribute. Today's symbols never contain `"` so it's safe; add an explicit autoescape-audit comment. *Source: EC-13*
+- **D258 EC-14** Alpine `loadChain()` still fetches `/trades/quick-order/options-chain` when `ib_connected=False` — returns 503 and Alpine swallows the error silently. Dropdown stays empty. Add a `!ib_connected` guard OR render a friendly toast on fetch failure. *Source: EC-14*
+- **D259 EC-27** Alpine state hardcodes `side: 'BUY'` so the Short-Option warning banner never appears until Chef manually clicks SELL. Default-empty side might be clearer UX. *Source: EC-27*
+- **D260 EC-28** Stub `_next_monthly_expiries` uses `min_dte=7` but the new BH-4 validation enforces 5. Harmless but align the values. *Source: EC-28*
+
+### Taxonomy / provenance docs
+- **D261 EC-25** Document the canonical `source` taxonomy on trade rows: `bot_execution | quick_order | flex_import | manual_api`. Journal filter "show me all manual trades" needs a single source-of-truth query. *Source: EC-25*
+
+### Near-assignment cron
+- **D262 EC-24** Migration 019's partial index `idx_trades_option_expiry` exists but no scheduler entry reads it. Near-assignment daily alert (Story 12.3 AC — deferred in commit message) still not wired. Needs a new scheduler job + email/toast path. *Source: EC-24*
+
+### Test gaps
+- **D263 EC-21** No test for `_parse_form` invariants (wrong-side stop, DTE floor, quantity>0). Tranche A added server-side validation but unit tests only cover the service layer. *Source: EC-21*
+- **D264 EC-22** No integration test for the HTTP flow via TestClient end-to-end: POST /trades/quick-order/submit → DB row → Response headers (`HX-Trigger` JSON). *Source: EC-22*
+- **D265 EC-23** No test for `compute_preview` rendering with `Decimal` through Jinja `'%.2f' | format(...)`. Epic 9 H5 was exactly this crash pattern. *Source: EC-23*
+- **D266 EC-26** `compute_preview` `except (IBTerminalError, IBTransientError, Exception)` is redundant — drop the duplicate base class. Cosmetic. *Source: EC-26*
+
+### Join / performance
+- **D267 EC-19** `quick_orders.ib_order_id ↔ trades.perm_id` join has no explicit index — currently served by `trades(broker, perm_id)` unique. A future "all QO trades last week" query will work but document the join idiom. *Source: EC-19*
+
+### Auditor follow-ups
+- **D268 Auditor 12.3 / 12.4 deferrals** — near-assignment daily cron (covered by D262); bracket submission semantics in stub (real adapter only); stub-backed chain validation replay. All explicitly deferred in the commit message. *Source: Auditor*

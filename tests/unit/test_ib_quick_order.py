@@ -522,3 +522,102 @@ async def test_handle_fill_event_partial_does_not_create_trade() -> None:
     assert result["status"] == "partial"
     assert result["trade_id"] is None
     assert not any("INSERT INTO trades" in c[1] for c in conn.calls)
+
+
+# ---------------------------------------------------------------------------
+# Tranche A patches (Epic 12 code review)
+# ---------------------------------------------------------------------------
+
+
+def test_retryable_exceptions_no_longer_include_connection_error() -> None:
+    """Code-review BH-6: `IBTransientError` subclasses `ConnectionError`,
+    so listing both was redundant."""
+
+    from app.services.ib_quick_order import _RETRYABLE_EXCEPTIONS
+
+    assert IBTransientError in _RETRYABLE_EXCEPTIONS
+    assert ConnectionError not in _RETRYABLE_EXCEPTIONS
+    assert TimeoutError in _RETRYABLE_EXCEPTIONS
+
+
+def test_handle_fill_event_canonicalizes_horizon_to_swing_short() -> None:
+    """Code-review EC-8: Quick-Order writes `horizon='swing_short'`
+    when the form doesn't specify one — matches HORIZON_LABELS."""
+
+    quick_order_row = {
+        "id": 42,
+        "order_ref": "qo-horizon",
+        "asset_class": "stock",
+        "symbol": "TSLA",
+        "side": "buy",
+        "quantity": Decimal("10"),
+        "limit_price": Decimal("200"),
+        "stop_price": Decimal("190"),
+        "option_expiry": None,
+        "option_strike": None,
+        "option_right": None,
+        "option_multiplier": None,
+        "ib_order_id": None,
+        "status": "submitted",
+        "strategy_id": None,
+        "trigger_source": None,
+        "horizon": None,  # triggers the `or 'swing_short'` fallback
+        "notes": None,
+        "margin_estimate": None,
+    }
+    conn = _FakeConn(canned={"fetchrow": quick_order_row})
+    event = ExecutionEvent(
+        order_ref="qo-horizon",
+        ib_order_id="stub-fill",
+        status="filled",
+        filled_quantity=Decimal("10"),
+        filled_price=Decimal("200"),
+        execution_time=datetime.now(UTC),
+    )
+    asyncio.run(handle_fill_event(conn, event))
+    insert_call = next(c for c in conn.calls if "INSERT INTO trades" in c[1])
+    trigger_spec = insert_call[2][7]  # position of trigger_spec dict
+    assert trigger_spec["horizon"] == "swing_short"
+    assert trigger_spec["source"] == "quick_order"
+
+
+@pytest.mark.asyncio
+async def test_sweep_orphan_quick_orders_returns_count() -> None:
+    """Code-review BH-1 / EC-15: the startup sweep marks orphaned
+    `submitted` rows as `rejected`."""
+
+    from app.services.ib_quick_order import sweep_orphan_quick_orders
+
+    class _SweepConn:
+        def __init__(self) -> None:
+            self.sql: str | None = None
+
+        async def fetch(self, sql: str, *args: Any) -> list[Any]:
+            self.sql = sql
+            return [{"id": 1}, {"id": 2}]
+
+    conn = _SweepConn()
+    count = await sweep_orphan_quick_orders(conn)  # type: ignore[arg-type]
+    assert count == 2
+    assert conn.sql is not None
+    assert "status = 'rejected'" in conn.sql
+    assert "ib_order_id IS NULL" in conn.sql
+
+
+def test_trigger_prose_renders_quick_order_pattern() -> None:
+    """Code-review EC-7: `quick_order` trigger_type renders a
+    dedicated Chef-authored prose line."""
+
+    from app.services.trigger_prose import render_trigger_prose
+
+    prose = render_trigger_prose(
+        {
+            "trigger_type": "quick_order",
+            "source": "quick_order",
+            "horizon": "swing_short",
+        },
+        trade={"symbol": "AAPL", "side": "buy"},
+    )
+    assert "Quick-Order" in prose
+    assert "AAPL" in prose
+    assert "Short Swing" in prose

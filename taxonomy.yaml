@@ -28,6 +28,9 @@ trigger_types:
   - id: manual
     label: Manuelle Idee
     description: Diskretion ohne externes Signal
+  - id: quick_order
+    label: IB Quick-Order
+    description: Manueller Swing-Order via IB Quick-Order-Form (Epic 12)
 
 exit_reasons:
   - id: stop_hit

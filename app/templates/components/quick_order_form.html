@@ -20,6 +20,15 @@
     </div>
   {% endif %}
 
+  {# Code-review EC-10: regime kill-switch context banner. FR42
+     exempts manual IB Quick-Orders from the kill-switch gate, so
+     the banner is informational only — submit stays enabled. #}
+  {% if kill_switch_active %}
+    <div class="quick-order-form__regime-banner" role="status">
+      ⚠ Regime-Kill-Switch aktiv — Crypto/CFD-Bots pausiert. IB Swing-Order bleibt manuell freigegeben (FR42).
+    </div>
+  {% endif %}
+
   <header class="quick-order-form__header">
     <h2 class="quick-order-form__title">Quick Order · {{ symbol or '—' }}</h2>
     <div class="quick-order-form__tabs" role="tablist">
@@ -202,6 +211,13 @@
     background: rgba(239, 68, 68, 0.12);
     border-left: 4px solid var(--color-loss, #ef4444);
     color: var(--color-loss, #ef4444);
+  }
+  .quick-order-form__regime-banner {
+    padding: var(--space-2) var(--space-4);
+    background: rgba(245, 158, 11, 0.12);
+    border-left: 4px solid var(--color-warn, #f59e0b);
+    color: var(--text-primary);
+    font-size: var(--font-size-small);
   }
   .quick-order-form__header {
     display: flex;

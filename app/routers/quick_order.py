@@ -31,6 +31,11 @@ from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse, Response
 from fastapi.templating import Jinja2Templates
 
+try:
+    from starlette.status import HTTP_422_UNPROCESSABLE_CONTENT as _HTTP_422
+except ImportError:  # pragma: no cover — older Starlette
+    from starlette.status import HTTP_422_UNPROCESSABLE_ENTITY as _HTTP_422
+
 from app.filters.formatting import JINJA_FILTERS
 from app.logging import get_logger
 from app.services.ib_quick_order import (
@@ -52,6 +57,35 @@ for _name, _fn in JINJA_FILTERS.items():
 
 def _get_client(request: Request):
     return getattr(request.app.state, "ib_quick_order_client", None)
+
+
+def _render_error_fragment(
+    request: Request,
+    message: str,
+    *,
+    kind: str = "error",
+    status_code: int = _HTTP_422,
+):
+    """Return the HTMX-swappable error fragment.
+
+    Code-review Auditor 12.4 #2/#4 + BH-2: user-correctable errors
+    (parse failures, terminal IB errors, Short-Option acknowledge
+    miss) render as an inline fragment swapped into the preview slot
+    instead of a JSON 422 body. The shape is stable: HTMX always
+    sees HTML in the target, never a raw error JSON.
+
+    Uses `HTTP_422_UNPROCESSABLE_ENTITY` so HTMX still treats it as
+    a client error (the status-code + `hx-swap-oob="true"` pattern
+    lets the template inform HTMX to still perform the swap).
+    """
+
+    return templates.TemplateResponse(
+        request,
+        "components/quick_order_error.html",
+        {"message": message, "kind": kind},
+        status_code=status_code,
+        headers={"HX-Reswap": "innerHTML", "HX-Retarget": "#quick-order-preview-slot"},
+    )
 
 
 def _coerce_decimal(value: Any, field: str) -> Decimal:
@@ -206,10 +240,29 @@ async def quick_order_form(
 
     Story 12.1 AC #1: asset-class toggle (Stock | Option).
     Story 12.1 AC #7: disable submit when IB not connected.
+
+    Code-review EC-10: FR42 exempts manual IB Quick-Orders from the
+    kill-switch, BUT Chef should still see the regime context — the
+    crypto/CFD bots being paused is useful operator context for a
+    Swing-Order decision. The banner does not disable submit (that
+    would violate FR42), it just surfaces the state.
     """
 
     client = _get_client(request)
     is_connected = bool(client and client.is_connected())
+
+    kill_switch_active = False
+    db_pool = getattr(request.app.state, "db_pool", None)
+    if db_pool is not None and hasattr(db_pool, "acquire"):
+        try:
+            from app.services.regime import get_current_regime
+
+            async with db_pool.acquire() as conn:
+                regime = await get_current_regime(conn)
+                kill_switch_active = regime.kill_switch_active
+        except Exception as exc:  # noqa: BLE001 — best-effort banner
+            logger.warning("quick_order.regime_probe_failed", error=str(exc))
+
     return templates.TemplateResponse(
         request,
         "components/quick_order_form.html",
@@ -217,6 +270,7 @@ async def quick_order_form(
             "symbol": symbol or "",
             "asset_class": asset_class if asset_class in ("stock", "option") else "stock",
             "ib_connected": is_connected,
+            "kill_switch_active": kill_switch_active,
         },
     )
 
@@ -282,14 +336,18 @@ async def quick_order_preview(request: Request):
 
     client = _get_client(request)
     if client is None or not client.is_connected():
-        raise HTTPException(
+        return _render_error_fragment(
+            request,
+            "IB TWS/Gateway nicht verbunden — Start TWS oder Gateway auf Port 7497/4002",
             status_code=503,
-            detail="IB TWS/Gateway nicht verbunden",
         )
 
     raw_form = await request.form()
     form_dict = {k: raw_form.get(k) for k in raw_form}
-    parsed = _parse_form(form_dict)
+    try:
+        parsed = _parse_form(form_dict)
+    except HTTPException as exc:
+        return _render_error_fragment(request, str(exc.detail))
 
     preview = await compute_preview(client, parsed)
     return templates.TemplateResponse(
@@ -317,24 +375,28 @@ async def quick_order_submit(request: Request):
 
     client = _get_client(request)
     if client is None or not client.is_connected():
-        raise HTTPException(
+        return _render_error_fragment(
+            request,
+            "IB TWS/Gateway nicht verbunden — Start TWS oder Gateway auf Port 7497/4002",
             status_code=503,
-            detail="IB TWS/Gateway nicht verbunden",
         )
 
     db_pool = getattr(request.app.state, "db_pool", None)
     if db_pool is None or not hasattr(db_pool, "acquire"):
-        raise HTTPException(status_code=503, detail="db_pool unavailable")
+        return _render_error_fragment(request, "db_pool unavailable", status_code=503)
 
     raw_form = await request.form()
     form_dict = {k: raw_form.get(k) for k in raw_form}
-    parsed = _parse_form(form_dict)
+    try:
+        parsed = _parse_form(form_dict)
+    except HTTPException as exc:
+        return _render_error_fragment(request, str(exc.detail))
 
     try:
         async with db_pool.acquire() as conn:
             result = await submit_quick_order(conn, client, parsed)
     except QuickOrderSubmitError as exc:
-        raise HTTPException(status_code=422, detail=str(exc)) from None
+        return _render_error_fragment(request, str(exc))
 
     return Response(
         status_code=201,

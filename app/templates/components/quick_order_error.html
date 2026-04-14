@@ -1,0 +1,59 @@
+{#
+  Quick-Order error fragment (Epic 12 / Story 12.4 AC #2 + #4).
+
+  Rendered into `#quick-order-preview-slot` when the preview or
+  submit pipeline rejects a request with a user-correctable error
+  (422 semantics). HTMX swaps the fragment in place so the error
+  message lands inline next to the form — no JSON 422 payload, no
+  modal dialog, no separate toast to dismiss.
+
+  Expects context:
+  - `message` (str): the German operator-facing message
+  - `kind` (str, default "error"): one of "error" | "warning"
+#}
+<div
+  class="quick-order-error quick-order-error--{{ kind | default('error') }}"
+  role="alert"
+  aria-live="polite"
+>
+  <div class="quick-order-error__icon" aria-hidden="true">
+    {% if kind == "warning" %}⚠{% else %}✗{% endif %}
+  </div>
+  <div class="quick-order-error__body">
+    <div class="quick-order-error__title">
+      {% if kind == "warning" %}Achtung{% else %}Fehler{% endif %}
+    </div>
+    <div class="quick-order-error__message">{{ message }}</div>
+  </div>
+</div>
+
+<style>
+  .quick-order-error {
+    display: flex;
+    gap: var(--space-3);
+    padding: var(--space-3) var(--space-4);
+    margin-top: var(--space-3);
+    background: rgba(239, 68, 68, 0.12);
+    border-left: 4px solid var(--color-loss, #ef4444);
+  }
+  .quick-order-error--warning {
+    background: rgba(245, 158, 11, 0.12);
+    border-left-color: var(--color-warn, #f59e0b);
+  }
+  .quick-order-error__icon {
+    font-size: var(--font-size-section);
+    color: var(--color-loss, #ef4444);
+  }
+  .quick-order-error--warning .quick-order-error__icon {
+    color: var(--color-warn, #f59e0b);
+  }
+  .quick-order-error__title {
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--space-1);
+  }
+  .quick-order-error__message {
+    color: var(--text-secondary);
+    font-size: var(--font-size-body);
+  }
+</style>
