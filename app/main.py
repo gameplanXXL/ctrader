@@ -30,6 +30,7 @@ from app.logging import configure_logging, get_logger
 from app.routers import api as api_router
 from app.routers import debug as debug_router
 from app.routers import pages as pages_router
+from app.routers import strategies as strategies_router
 from app.routers import trades as trades_router
 from app.services.taxonomy import get_taxonomy, load_taxonomy
 
@@ -142,6 +143,9 @@ app.include_router(pages_router.router)
 
 # Trade-detail fragment endpoints (Story 2.4 — HTMX inline expansion).
 app.include_router(trades_router.router)
+
+# Strategy CRUD + list/detail pages (Epic 6).
+app.include_router(strategies_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)

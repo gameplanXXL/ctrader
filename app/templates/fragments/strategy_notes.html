@@ -1,0 +1,52 @@
+{#
+  Strategy notes list — Story 6.4.
+  Append-only history, chronologically sorted (newest first).
+  HTMX swap target for POST /strategies/{id}/notes.
+#}
+<div id="strategy-notes-list" class="strategy-notes-list">
+  {% if notes %}
+    {% for note in notes %}
+      <article class="strategy-note">
+        <header class="strategy-note__header">
+          <time class="tabular">{{ note.created_at | format_time }}</time>
+        </header>
+        <p class="strategy-note__body">{{ note.content }}</p>
+      </article>
+    {% endfor %}
+  {% else %}
+    <p class="strategy-notes-list__empty">Noch keine Notizen zu dieser Strategie.</p>
+  {% endif %}
+</div>
+
+<style>
+  .strategy-notes-list {
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    max-height: 400px;
+    overflow-y: auto;
+  }
+  .strategy-note {
+    padding: var(--space-2);
+    background-color: var(--bg-void);
+    border-left: 2px solid var(--border-default);
+  }
+  .strategy-note__header {
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--space-1);
+  }
+  .strategy-note__body {
+    margin: 0;
+    font-size: var(--font-size-small);
+    white-space: pre-wrap;
+    color: var(--text-primary);
+  }
+  .strategy-notes-list__empty {
+    color: var(--text-muted);
+    font-style: italic;
+    font-size: var(--font-size-small);
+  }
+</style>

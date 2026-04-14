@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T03:00'
+last_updated: '2026-04-14T04:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -83,12 +83,12 @@ development_status:
   # =========================================================================
   # EPIC 6: Strategy-Management
   # =========================================================================
-  epic-6: backlog
-  6-1-strategy-datenmodell-crud: ready-for-dev
-  6-2-strategy-list-metrics: ready-for-dev
-  6-3-strategy-detail-expectancy: ready-for-dev
-  6-4-strategy-notes-history: ready-for-dev
-  6-5-strategy-status-enforcement: ready-for-dev
+  epic-6: in-progress
+  6-1-strategy-datenmodell-crud: review
+  6-2-strategy-list-metrics: review
+  6-3-strategy-detail-expectancy: review
+  6-4-strategy-notes-history: review
+  6-5-strategy-status-enforcement: review  # is_strategy_active gate ready; Epic 7 proposal generator consumes it
 
   # =========================================================================
   # EPIC 7: Approval-Pipeline & Risk-Gate

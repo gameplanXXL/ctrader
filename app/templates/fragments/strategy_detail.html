@@ -1,0 +1,177 @@
+{#
+  Strategy detail fragment — Story 6.3.
+  Right pane of the strategies page. Hero metrics + expectancy curve
+  + followed-vs-override split + notes section (Story 6.4).
+#}
+{% from "components/status_badge.html" import status_badge %}
+{% from "components/stat_card.html" import stat_card %}
+{% set row = detail.row %}
+{% set breakdown = detail.followed_breakdown %}
+
+<div class="strategy-detail">
+  <header class="strategy-detail__header">
+    <div>
+      <h2 class="strategy-detail__title">{{ row.name }}</h2>
+      <p class="strategy-detail__meta">
+        {{ row.horizon }} · {{ row.asset_class | upper }} · Risk {{ "$%.2f" | format(row.risk_budget_per_trade | float) }}/Trade
+      </p>
+    </div>
+    {{ status_badge(row.status, interactive=true, strategy_id=row.id) }}
+  </header>
+
+  <section class="strategy-detail__metrics">
+    {{ stat_card("Trades", row.trade_count, sparkline_svg=sparkline_svg, variant="neutral") }}
+    {{ stat_card("Expectancy", row.expectancy_float | format_pnl, sparkline_svg=sparkline_svg,
+                 variant=("gain" if row.expectancy_float > 0 else "loss" if row.expectancy_float < 0 else "neutral")) }}
+    {{ stat_card("Winrate", "%.0f%%" | format(row.winrate_pct), sparkline_svg=sparkline_svg, variant="neutral") }}
+    {{ stat_card("Drawdown", row.drawdown_float | format_pnl, sparkline_svg=sparkline_svg,
+                 variant=("loss" if row.drawdown_float < 0 else "neutral")) }}
+  </section>
+
+  <section class="strategy-detail__followed">
+    <h3 class="strategy-detail__section-title">Followed vs Override</h3>
+    <div class="followed-grid">
+      <div class="followed-grid__cell">
+        <span class="followed-grid__label">Followed</span>
+        <span class="followed-grid__count tabular">{{ breakdown.followed_count }} trades</span>
+        <span class="followed-grid__pnl tabular {{ breakdown.followed_expectancy | float | pnl_class }}">
+          {{ breakdown.followed_expectancy | float | format_pnl }} / trade
+        </span>
+      </div>
+      <div class="followed-grid__cell">
+        <span class="followed-grid__label">Override</span>
+        <span class="followed-grid__count tabular">{{ breakdown.override_count }} trades</span>
+        <span class="followed-grid__pnl tabular {{ breakdown.override_expectancy | float | pnl_class }}">
+          {{ breakdown.override_expectancy | float | format_pnl }} / trade
+        </span>
+      </div>
+    </div>
+  </section>
+
+  <section class="strategy-detail__trades">
+    <h3 class="strategy-detail__section-title">Trades ({{ detail.trades | length }})</h3>
+    {% if detail.trades %}
+      <table class="strategy-detail__trade-table">
+        <thead>
+          <tr>
+            <th>Symbol</th>
+            <th>Side</th>
+            <th>Opened</th>
+            <th class="num">P&amp;L</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for t in detail.trades %}
+            <tr>
+              <td>{{ t.symbol }}</td>
+              <td>{{ t.side }}</td>
+              <td class="tabular">{{ t.opened_at | format_time }}</td>
+              {% set pnl = t.pnl if t.pnl is not none else 0 %}
+              <td class="tabular num {{ pnl | float | pnl_class }}">{{ pnl | float | format_pnl }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="strategy-detail__empty">Noch keine Trades gegen diese Strategie.</p>
+    {% endif %}
+  </section>
+
+  {# Story 6.4 — notes history #}
+  <section class="strategy-detail__notes" id="strategy-notes-section">
+    <h3 class="strategy-detail__section-title">Notizen</h3>
+    <form
+      hx-post="/strategies/{{ row.id }}/notes"
+      hx-target="#strategy-notes-list"
+      hx-swap="outerHTML"
+      class="strategy-notes-form"
+    >
+      <textarea name="content" rows="2" maxlength="2000" required
+                placeholder="Neue Notiz…"
+                class="strategy-notes-form__textarea"></textarea>
+      <button type="submit" class="strategy-notes-form__submit">Speichern</button>
+    </form>
+    {% include "fragments/strategy_notes.html" %}
+  </section>
+</div>
+
+<style>
+  .strategy-detail { display: flex; flex-direction: column; gap: var(--space-4); }
+  .strategy-detail__header {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: var(--space-3);
+  }
+  .strategy-detail__title { margin: 0; font-size: var(--font-size-section); }
+  .strategy-detail__meta { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--font-size-small); }
+  .strategy-detail__metrics {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: var(--space-2);
+  }
+  @media (max-width: 900px) {
+    .strategy-detail__metrics { grid-template-columns: repeat(2, 1fr); }
+  }
+  .strategy-detail__section-title {
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 var(--space-2);
+  }
+  .followed-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--space-3);
+  }
+  .followed-grid__cell {
+    padding: var(--space-3);
+    border: 1px solid var(--border-subtle);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .followed-grid__label {
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    color: var(--text-muted);
+    letter-spacing: 0.05em;
+  }
+  .followed-grid__count { color: var(--text-secondary); font-size: var(--font-size-small); }
+  .followed-grid__pnl { font-size: var(--font-size-body); font-weight: 600; }
+  .strategy-detail__trade-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-small); }
+  .strategy-detail__trade-table th {
+    text-align: left;
+    padding: var(--space-1) var(--space-2);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 1px solid var(--border-default);
+  }
+  .strategy-detail__trade-table td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .strategy-detail__trade-table .num { text-align: right; }
+  .strategy-detail__empty { color: var(--text-muted); font-style: italic; }
+  .strategy-notes-form { display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-3); }
+  .strategy-notes-form__textarea {
+    background-color: var(--bg-void);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+    resize: vertical;
+  }
+  .strategy-notes-form__submit {
+    align-self: flex-start;
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border: none;
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+    font-weight: 600;
+  }
+</style>

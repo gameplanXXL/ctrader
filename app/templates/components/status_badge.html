@@ -1,13 +1,86 @@
 {#
-  status_badge(status, label=None)
-  Tier-1 component, used by risk gate, health widget, order status.
-  status ∈ {"green", "yellow", "red", "unknown"}
+  status_badge(status, label=None, interactive=False, strategy_id=None)
+  Tier-1 component — Epic 6 Story 6.1 extends the original stub to
+  support a click-to-toggle mode for strategy lifecycle (active ↔
+  paused, retired terminal).
+
+  Non-interactive mode (default): renders a status dot + label.
+  Interactive mode: anchors a POST /strategies/{id}/status with HTMX
+  outerHTML swap so the badge replaces itself with the new state.
 #}
-{% macro status_badge(status, label=none) %}
-<span class="status-badge status-badge--{{ status }}"
-      role="status"
-      aria-label="{{ label or status }}">
-  <span class="status-badge__dot"></span>
-  {% if label %}<span class="status-badge__label">{{ label }}</span>{% endif %}
-</span>
+{% macro status_badge(status, label=none, interactive=false, strategy_id=none) %}
+{% set cls_map = {
+  "active":  "status-badge--ok",
+  "paused":  "status-badge--warn",
+  "retired": "status-badge--muted",
+  "ok":      "status-badge--ok",
+  "green":   "status-badge--ok",
+  "yellow":  "status-badge--warn",
+  "warn":    "status-badge--warn",
+  "red":     "status-badge--alert",
+  "alert":   "status-badge--alert",
+  "unknown": "status-badge--muted"
+} %}
+{% set display_label = label or status | capitalize %}
+{% if interactive and strategy_id %}
+  <button type="button"
+          class="status-badge status-badge--interactive {{ cls_map.get(status, 'status-badge--muted') }}"
+          hx-post="/strategies/{{ strategy_id }}/status"
+          hx-swap="outerHTML"
+          hx-target="this"
+          aria-label="Status: {{ display_label }}. Click to toggle.">
+    <span class="status-badge__dot" aria-hidden="true"></span>
+    <span class="status-badge__label">{{ display_label }}</span>
+  </button>
+{% else %}
+  <span class="status-badge {{ cls_map.get(status, 'status-badge--muted') }}"
+        role="status"
+        aria-label="{{ display_label }}">
+    <span class="status-badge__dot" aria-hidden="true"></span>
+    <span class="status-badge__label">{{ display_label }}</span>
+  </span>
+{% endif %}
 {% endmacro %}
+
+<style>
+  .status-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-1);
+    padding: 2px var(--space-2);
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border: 1px solid var(--border-default);
+    background-color: var(--bg-surface);
+  }
+  .status-badge__dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: currentColor;
+  }
+  .status-badge--ok {
+    color: var(--color-win, #3fb950);
+    border-color: rgba(63, 185, 80, 0.4);
+  }
+  .status-badge--warn {
+    color: var(--status-yellow, #f59e0b);
+    border-color: rgba(245, 158, 11, 0.4);
+  }
+  .status-badge--alert {
+    color: var(--color-loss, #f85149);
+    border-color: rgba(248, 81, 73, 0.4);
+  }
+  .status-badge--muted {
+    color: var(--text-muted);
+    border-color: var(--border-subtle);
+  }
+  .status-badge--interactive {
+    cursor: pointer;
+    font-family: inherit;
+  }
+  .status-badge--interactive:hover {
+    filter: brightness(1.2);
+  }
+</style>

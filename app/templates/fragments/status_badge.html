@@ -1,0 +1,4 @@
+{# HTMX swap target for status-badge toggles. Re-renders the
+   component macro with the latest strategy state. #}
+{% from "components/status_badge.html" import status_badge %}
+{{ status_badge(strategy.status.value, interactive=interactive, strategy_id=strategy.id) }}

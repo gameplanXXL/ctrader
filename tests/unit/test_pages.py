@@ -30,10 +30,12 @@ def test_page_shell_renders_200(client: TestClient, path: str, slug: str, label:
     body = response.text
     assert "ctrader" in body
     # Story 2.3 replaced the journal page-shell H1 with a dedicated
-    # journal__title class. Other shells still use page-title.
+    # journal__title class; Epic 6 added strategies-page__title.
+    # Accept any page-specific H1 class that contains the label.
     assert (
         f'<h1 class="page-title">{label}</h1>' in body
         or f'<h1 class="journal__title">{label}</h1>' in body
+        or f'<h1 class="strategies-page__title">{label}</h1>' in body
     )
 
 

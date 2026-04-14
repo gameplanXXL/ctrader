@@ -1,12 +1,210 @@
 {% extends "base.html" %}
+{% from "components/status_badge.html" import status_badge %}
+
 {% block title %}Strategies · ctrader{% endblock %}
+
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Strategies</h1>
-  <p class="page-placeholder">Coming soon — Epic 6 (Strategy-Management).</p>
+<section class="strategies-page">
+  <header class="strategies-page__header">
+    <h1 class="strategies-page__title">Strategies</h1>
+    <div class="strategies-page__meta">
+      <span class="tabular">{{ strategies | length }} strategies</span>
+      <button
+        type="button"
+        class="strategies-page__new-btn"
+        onclick="document.getElementById('strategy-new-form').hidden = false; this.hidden = true;"
+      >+ Neue Strategie</button>
+    </div>
+  </header>
+
+  {# Horizon aggregation (Story 6.3 AC #4 / FR40) — one row per horizon. #}
+  {% if horizon_rows %}
+    <section class="strategies-page__horizon">
+      <h2 class="strategies-page__section-title">Per Horizon</h2>
+      <table class="horizon-table">
+        <thead>
+          <tr>
+            <th>Horizon</th>
+            <th class="num">Trades</th>
+            <th class="num">Total P&amp;L</th>
+            <th class="num">Expectancy</th>
+            <th class="num">Drawdown</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for h in horizon_rows %}
+            <tr>
+              <td>{{ h.horizon }}</td>
+              <td class="tabular num">{{ h.trade_count }}</td>
+              <td class="tabular num {{ h.total_pnl_float | pnl_class }}">{{ h.total_pnl_float | format_pnl }}</td>
+              <td class="tabular num {{ h.expectancy_float | pnl_class }}">{{ h.expectancy_float | format_pnl }}</td>
+              <td class="tabular num {{ h.drawdown_float | pnl_class }}">{{ h.drawdown_float | format_pnl }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% endif %}
+
+  {# New-strategy form (hidden by default, toggled by the button above). #}
+  <section id="strategy-new-form" class="strategy-form-section" hidden>
+    {% include "fragments/strategy_form.html" %}
+  </section>
+
+  <div class="strategies-page__two-pane">
+    {# Left pane — list #}
+    <aside class="strategies-page__list">
+      {% if strategies %}
+        <table class="strategy-list">
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Horizon</th>
+              <th class="num">Trades</th>
+              <th class="num">Week</th>
+              <th class="num">Expectancy</th>
+              <th class="num">Drawdown</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for s in strategies %}
+              <tr class="strategy-list__row {% if selected == s.id %}strategy-list__row--selected{% endif %}"
+                  hx-get="/strategies/{{ s.id }}/detail_fragment"
+                  hx-target="#strategy-detail"
+                  hx-swap="innerHTML"
+                  hx-push-url="/strategies?selected={{ s.id }}"
+                  role="button"
+                  tabindex="0">
+                <td class="strategy-list__name">{{ s.name }}</td>
+                <td>{{ s.horizon }}</td>
+                <td class="tabular num">{{ s.trade_count }}</td>
+                <td class="tabular num">{{ s.trade_count_week }}</td>
+                <td class="tabular num {{ s.expectancy_float | pnl_class }}">{{ s.expectancy_float | format_pnl }}</td>
+                <td class="tabular num {{ s.drawdown_float | pnl_class }}">{{ s.drawdown_float | format_pnl }}</td>
+                <td>{{ status_badge(s.status, interactive=true, strategy_id=s.id) }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <div class="strategies-page__empty">
+          <p>Noch keine Strategien angelegt.</p>
+          <p class="strategies-page__empty-hint">Klicke auf <strong>+ Neue Strategie</strong> um zu starten.</p>
+        </div>
+      {% endif %}
+    </aside>
+
+    {# Right pane — detail (pre-filled if ?selected=..., else HTMX-swap target) #}
+    <main id="strategy-detail" class="strategies-page__detail">
+      {% if detail %}
+        {% include "fragments/strategy_detail.html" %}
+      {% else %}
+        <div class="strategies-page__detail-empty">
+          <p>Strategie auswählen für Details.</p>
+        </div>
+      {% endif %}
+    </main>
+  </div>
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  .strategies-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .strategies-page__header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .strategies-page__title { font-size: var(--font-size-title); margin: 0; }
+  .strategies-page__meta { display: flex; align-items: center; gap: var(--space-3); }
+  .strategies-page__new-btn {
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border: none;
+    padding: var(--space-1) var(--space-3);
+    font-size: var(--font-size-small);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .strategies-page__horizon {
+    padding: var(--space-3);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  .strategies-page__section-title {
+    font-size: var(--font-size-label);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 var(--space-2);
+  }
+  .horizon-table { width: 100%; border-collapse: collapse; font-size: var(--font-size-small); }
+  .horizon-table th {
+    text-align: left;
+    padding: var(--space-1) var(--space-2);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: var(--font-size-label);
+  }
+  .horizon-table td {
+    padding: var(--space-1) var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .horizon-table .num, .strategy-list .num { text-align: right; }
+
+  .strategies-page__two-pane {
+    display: grid;
+    grid-template-columns: minmax(420px, 480px) 1fr;
+    gap: var(--space-4);
+    align-items: start;
+  }
+  @media (max-width: 1100px) {
+    .strategies-page__two-pane { grid-template-columns: 1fr; }
+  }
+  .strategies-page__list { overflow-x: auto; }
+  .strategy-list { width: 100%; border-collapse: collapse; font-size: var(--font-size-small); }
+  .strategy-list th {
+    text-align: left;
+    padding: var(--space-2);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    font-size: var(--font-size-label);
+    border-bottom: 1px solid var(--border-default);
+  }
+  .strategy-list__row {
+    cursor: pointer;
+    transition: background-color 0.1s ease;
+  }
+  .strategy-list__row:hover { background-color: var(--bg-surface); }
+  .strategy-list__row--selected { background-color: var(--bg-elevated); }
+  .strategy-list__row td {
+    padding: var(--space-2);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  .strategy-list__name { font-weight: 600; }
+
+  .strategies-page__detail {
+    padding: var(--space-4);
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    min-height: 400px;
+  }
+  .strategies-page__detail-empty { color: var(--text-muted); font-style: italic; }
+  .strategies-page__empty {
+    padding: var(--space-6);
+    text-align: center;
+    color: var(--text-muted);
+    border: 1px dashed var(--border-subtle);
+  }
+
+  .strategy-form-section {
+    padding: var(--space-3);
+    background-color: var(--bg-surface);
+    border-left: 3px solid var(--accent);
+  }
 </style>
 {% endblock %}

@@ -1,0 +1,113 @@
+{#
+  Strategy create form — Story 6.1 AC #3.
+  6 required fields: name, asset_class, horizon, typical_holding_period,
+  trigger_sources (multi), risk_budget_per_trade.
+
+  POSTs to /strategies and redirects to ?selected=<new_id> on success.
+#}
+<form method="POST" action="/strategies" class="strategy-form">
+  <h3 class="strategy-form__title">Neue Strategie</h3>
+
+  <div class="strategy-form__row">
+    <label class="form-label" for="strategy-name">Name</label>
+    <input id="strategy-name" name="name" type="text" required autofocus maxlength="120"
+           class="strategy-form__input">
+  </div>
+
+  <div class="strategy-form__row">
+    <label class="form-label" for="strategy-asset">Asset Class</label>
+    <select id="strategy-asset" name="asset_class" required class="strategy-form__select">
+      <option value="stock">Stock</option>
+      <option value="option">Option</option>
+      <option value="crypto">Crypto</option>
+      <option value="cfd">CFD</option>
+    </select>
+  </div>
+
+  <div class="strategy-form__row">
+    <label class="form-label" for="strategy-horizon">Horizon</label>
+    <select id="strategy-horizon" name="horizon" required class="strategy-form__select">
+      {% for h in taxonomy.horizons %}
+        <option value="{{ h.id }}">{{ h.label }}</option>
+      {% endfor %}
+    </select>
+  </div>
+
+  <div class="strategy-form__row">
+    <label class="form-label" for="strategy-hold">Typical Holding Period</label>
+    <input id="strategy-hold" name="typical_holding_period" type="text"
+           placeholder="z.B. 2-5 Tage"
+           class="strategy-form__input">
+  </div>
+
+  <div class="strategy-form__row">
+    <span class="form-label">Trigger Sources</span>
+    <div class="strategy-form__checkboxes">
+      {% for entry in taxonomy.trigger_types %}
+        <label class="strategy-form__checkbox">
+          <input type="checkbox" name="trigger_sources[]" value="{{ entry.id }}">
+          <span>{{ entry.label or entry.id }}</span>
+        </label>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="strategy-form__row">
+    <label class="form-label" for="strategy-risk">Risk Budget per Trade ($)</label>
+    <input id="strategy-risk" name="risk_budget_per_trade" type="number"
+           min="0" step="0.01" required
+           class="strategy-form__input">
+  </div>
+
+  <div class="strategy-form__actions">
+    <button type="submit" class="strategy-form__submit">Anlegen</button>
+    <button type="button" class="strategy-form__cancel"
+            onclick="document.getElementById('strategy-new-form').hidden = true;">Abbrechen</button>
+  </div>
+</form>
+
+<style>
+  .strategy-form { display: flex; flex-direction: column; gap: var(--space-3); }
+  .strategy-form__title { margin: 0 0 var(--space-2); font-size: var(--font-size-section); }
+  .strategy-form__row { display: flex; flex-direction: column; gap: var(--space-1); }
+  .strategy-form__input, .strategy-form__select {
+    background-color: var(--bg-void);
+    color: var(--text-primary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2);
+    font-family: inherit;
+    font-size: var(--font-size-body);
+  }
+  .strategy-form__input:focus, .strategy-form__select:focus {
+    outline: none;
+    border-color: var(--accent);
+  }
+  .strategy-form__checkboxes {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2) var(--space-3);
+  }
+  .strategy-form__checkbox {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+    font-size: var(--font-size-small);
+  }
+  .strategy-form__actions { display: flex; gap: var(--space-3); margin-top: var(--space-2); }
+  .strategy-form__submit {
+    background-color: var(--accent);
+    color: var(--bg-void);
+    border: none;
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    font-weight: 600;
+  }
+  .strategy-form__cancel {
+    background: transparent;
+    color: var(--text-secondary);
+    border: 1px solid var(--border-default);
+    padding: var(--space-2) var(--space-4);
+    cursor: pointer;
+    font-family: inherit;
+  }
+</style>

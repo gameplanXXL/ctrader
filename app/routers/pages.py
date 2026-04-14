@@ -458,11 +458,6 @@ async def mistakes_report_page(
     return templates.TemplateResponse(request, "pages/mistakes_report.html", context)
 
 
-@router.get("/strategies", include_in_schema=False)
-async def strategies_page(request: Request):
-    return await _render(request, "strategies")
-
-
 @router.get("/approvals", include_in_schema=False)
 async def approvals_page(request: Request):
     return await _render(request, "approvals")
