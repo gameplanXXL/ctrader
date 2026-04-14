@@ -11,11 +11,23 @@
    the trigger because the browser navigation drops the response
    headers. #}
 <form hx-post="/strategies" class="strategy-form">
-  <h3 class="strategy-form__title">Neue Strategie</h3>
+  <h3 class="strategy-form__title">
+    {% if prefill and prefill.source_snapshot_id %}Neue Strategie aus Gordon-HOT-Pick
+    {% else %}Neue Strategie{% endif %}
+  </h3>
+  {% if prefill and prefill.source_snapshot_id %}
+    {# Story 10.3: hidden input carries the snapshot id through the
+       POST so the router can link the new strategy back. #}
+    <input type="hidden" name="source_snapshot_id" value="{{ prefill.source_snapshot_id }}">
+    <p class="strategy-form__prefill-hint">
+      Vorausgefüllt aus Gordon-Snapshot #{{ prefill.source_snapshot_id }}
+    </p>
+  {% endif %}
 
   <div class="strategy-form__row">
     <label class="form-label" for="strategy-name">Name</label>
     <input id="strategy-name" name="name" type="text" required autofocus maxlength="120"
+           value="{{ prefill.name if prefill and prefill.name else '' }}"
            class="strategy-form__input">
   </div>
 
@@ -33,7 +45,8 @@
     <label class="form-label" for="strategy-horizon">Horizon</label>
     <select id="strategy-horizon" name="horizon" required class="strategy-form__select">
       {% for h in taxonomy.horizons %}
-        <option value="{{ h.id }}">{{ h.label }}</option>
+        <option value="{{ h.id }}"
+                {% if prefill and prefill.horizon == h.id %}selected{% endif %}>{{ h.label }}</option>
       {% endfor %}
     </select>
   </div>
@@ -50,7 +63,8 @@
     <div class="strategy-form__checkboxes">
       {% for entry in taxonomy.trigger_types %}
         <label class="strategy-form__checkbox">
-          <input type="checkbox" name="trigger_sources[]" value="{{ entry.id }}">
+          <input type="checkbox" name="trigger_sources[]" value="{{ entry.id }}"
+                 {% if prefill and prefill.trigger_sources and entry.id in prefill.trigger_sources %}checked{% endif %}>
           <span>{{ entry.label or entry.id }}</span>
         </label>
       {% endfor %}
@@ -114,5 +128,10 @@
     padding: var(--space-2) var(--space-4);
     cursor: pointer;
     font-family: inherit;
+  }
+  .strategy-form__prefill-hint {
+    margin: 0 0 var(--space-2);
+    color: var(--accent);
+    font-size: var(--font-size-small);
   }
 </style>

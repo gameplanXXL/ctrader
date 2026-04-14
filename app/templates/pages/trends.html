@@ -1,12 +1,245 @@
 {% extends "base.html" %}
 {% block title %}Trends · ctrader{% endblock %}
+
+{% macro hot_pick_row(pick, variant, snapshot_id) %}
+<article class="hot-pick hot-pick--{{ variant }}" data-symbol="{{ pick.symbol }}">
+  <header class="hot-pick__header">
+    <span class="hot-pick__symbol tabular">{{ pick.symbol }}</span>
+    {% if pick.rank %}<span class="hot-pick__rank">#{{ pick.rank }}</span>{% endif %}
+    {% if pick.horizon %}<span class="hot-pick__horizon">{{ pick.horizon }}</span>{% endif %}
+    {% if pick.confidence is not none %}
+      <span class="hot-pick__confidence">{{ '%.0f' | format(pick.confidence * 100) }}%</span>
+    {% endif %}
+  </header>
+  {% if pick.thesis %}
+    <p class="hot-pick__thesis">{{ pick.thesis }}</p>
+  {% endif %}
+  {% if variant in ('new', 'unchanged') and pick.horizon and snapshot_id %}
+    {# Story 10.3: link to /strategies?prefill=... so the strategies
+       page hydrates its create-form with the HOT-pick context. #}
+    <a
+      class="hot-pick__strategy-link"
+      href="/strategies?prefill_symbol={{ pick.symbol }}&prefill_horizon={{ pick.horizon }}&prefill_source_snapshot_id={{ snapshot_id }}"
+    >Als Strategie anlegen →</a>
+  {% endif %}
+</article>
+{% endmacro %}
+
 {% block content %}
-<section class="page-shell">
-  <h1 class="page-title">Trends</h1>
-  <p class="page-placeholder">Coming soon — Epic 10 (Gordon Trend-Radar).</p>
+<section class="trends-page">
+  <header class="trends-page__header">
+    <h1 class="page-title">Trends</h1>
+    <form
+      class="trends-page__refresh"
+      hx-post="/api/gordon/fetch"
+      hx-swap="none"
+      hx-on::after-request="if (event.detail.successful) { window.location.reload(); } else { this.querySelector('.trends-page__refresh-error').textContent = 'Fetch fehlgeschlagen (' + event.detail.xhr.status + ')'; }"
+    >
+      <button type="submit" class="btn-secondary" title="Gordon-Snapshot jetzt via MCP abrufen">
+        ⟳ Snapshot fetchen
+      </button>
+      <span class="trends-page__refresh-error" role="alert"></span>
+    </form>
+  </header>
+
+  {% if db_error %}
+    <div class="trends-page__error" role="alert">
+      ⚠ Gordon-Daten konnten nicht geladen werden (DB-Fehler).
+    </div>
+  {% elif current is none %}
+    <div class="trends-page__empty">
+      <p>Noch kein Gordon-Snapshot vorhanden.</p>
+      <p class="trends-page__empty-hint">
+        Klicke auf <em>Snapshot fetchen</em> oder warte auf den wöchentlichen
+        Scheduled Job (Montag 06:00 UTC — Story 11.1).
+      </p>
+    </div>
+  {% else %}
+    {# ─── Hero ───────────────────────────────────────────────── #}
+    <section class="trends-hero">
+      <article class="trends-hero__card">
+        <h2 class="trends-hero__label">WEEKLY-DELTA</h2>
+        <p class="trends-hero__value tabular">
+          {% if diff %}{{ diff.delta_summary }}{% else %}—{% endif %}
+        </p>
+        <p class="trends-hero__sub">
+          {% if previous %}vs Snapshot {{ previous.created_at | format_datetime }}{% else %}Erster Snapshot{% endif %}
+        </p>
+      </article>
+
+      <article class="trends-hero__card">
+        <h2 class="trends-hero__label">FEAR &amp; GREED</h2>
+        <p class="trends-hero__value tabular">
+          {% if regime and regime.snapshot and regime.snapshot.fear_greed_index is not none %}
+            {{ regime.snapshot.fear_greed_index }}
+          {% else %}—{% endif %}
+        </p>
+        <p class="trends-hero__sub">
+          {% if regime %}{{ regime.fg_classification }}{% else %}Kein Snapshot{% endif %}
+        </p>
+      </article>
+
+      <article class="trends-hero__card">
+        <h2 class="trends-hero__label">VIX</h2>
+        <p class="trends-hero__value tabular">
+          {% if regime and regime.snapshot and regime.snapshot.vix is not none %}
+            {{ '%.2f' | format(regime.snapshot.vix | float) }}
+          {% else %}—{% endif %}
+        </p>
+        <p class="trends-hero__sub">Volatility Index</p>
+      </article>
+
+      <article class="trends-hero__card">
+        <h2 class="trends-hero__label">KILL-SWITCH</h2>
+        <p class="trends-hero__value {% if regime and regime.kill_switch_active %}trends-hero__value--alert{% endif %}">
+          {% if regime and regime.kill_switch_active %}🔴 ACTIVE{% else %}🟢 OFF{% endif %}
+        </p>
+        <p class="trends-hero__sub">
+          {% if regime %}{{ regime.paused_count }} paused{% else %}—{% endif %}
+        </p>
+      </article>
+    </section>
+
+    {% if current.is_stale %}
+      <div class="trends-page__warning" role="alert">
+        ⚠ Snapshot ist älter als 7 Tage ({{ current.created_at | format_datetime }}) — Gordon-Job hat möglicherweise einen Run verpasst.
+      </div>
+    {% endif %}
+    {% if current.source_error %}
+      <div class="trends-page__warning" role="alert">
+        ⚠ MCP-Fetch-Fehler im letzten Snapshot: <code>{{ current.source_error }}</code>
+      </div>
+    {% endif %}
+
+    {# ─── HOT-picks: NEW + UNCHANGED + DROPPED ─────────────── #}
+    <section class="trends-page__section">
+      <h3 class="trends-page__section-title">
+        ● NEU ({{ diff.new | length if diff else 0 }})
+      </h3>
+      {% if diff and diff.new %}
+        <div class="hot-pick__list">
+          {% for pick in diff.new %}{{ hot_pick_row(pick, 'new', current.id) }}{% endfor %}
+        </div>
+      {% else %}
+        <p class="trends-page__empty-hint">Keine neuen Picks diese Woche.</p>
+      {% endif %}
+    </section>
+
+    {% if diff and diff.unchanged %}
+      <section class="trends-page__section">
+        <h3 class="trends-page__section-title">
+          UNVERÄNDERT ({{ diff.unchanged | length }})
+        </h3>
+        <div class="hot-pick__list">
+          {% for pick in diff.unchanged %}{{ hot_pick_row(pick, 'unchanged', current.id) }}{% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    {% if diff and diff.dropped %}
+      <section class="trends-page__section">
+        <h3 class="trends-page__section-title">
+          ● WEGGEFALLEN ({{ diff.dropped | length }})
+        </h3>
+        <div class="hot-pick__list">
+          {% for pick in diff.dropped %}{{ hot_pick_row(pick, 'dropped', current.id) }}{% endfor %}
+        </div>
+      </section>
+    {% endif %}
+
+    <footer class="trends-page__footer">
+      Snapshot #{{ current.id }} vom {{ current.created_at | format_datetime }} ·
+      {{ current.hot_picks | length }} HOT-Picks total
+    </footer>
+  {% endif %}
 </section>
+
 <style>
-  .page-title { font-size: var(--font-size-title); margin: 0 0 var(--space-4); }
-  .page-placeholder { color: var(--text-muted); font-size: var(--font-size-body); }
+  .page-title { font-size: var(--font-size-title); margin: 0; }
+  .trends-page { display: flex; flex-direction: column; gap: var(--space-4); }
+  .trends-page__header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 1px solid var(--border-default);
+    padding-bottom: var(--space-3);
+  }
+  .trends-page__empty,
+  .trends-page__error,
+  .trends-page__warning {
+    padding: var(--space-3) var(--space-4);
+    border: 1px dashed var(--border-subtle);
+    color: var(--text-muted);
+  }
+  .trends-page__error { border-color: var(--color-loss, #ef4444); color: var(--color-loss, #ef4444); }
+  .trends-page__warning { border-color: var(--color-warn, #f59e0b); color: var(--color-warn, #f59e0b); }
+  .trends-page__empty-hint { color: var(--text-muted); font-size: var(--font-size-small); }
+
+  .trends-hero { display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--space-3); }
+  .trends-hero__card {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+    padding: var(--space-3);
+    text-align: center;
+  }
+  .trends-hero__label { margin: 0; font-size: var(--font-size-small); color: var(--text-muted); }
+  .trends-hero__value { font-size: calc(var(--font-size-title) * 1.2); margin: var(--space-1) 0; font-weight: 600; }
+  .trends-hero__value--alert { color: var(--color-loss, #ef4444); }
+  .trends-hero__sub { margin: 0; font-size: var(--font-size-label); color: var(--text-muted); }
+
+  .trends-page__section { display: flex; flex-direction: column; gap: var(--space-2); }
+  .trends-page__section-title {
+    margin: 0;
+    font-size: var(--font-size-section);
+    border-bottom: 1px solid var(--border-subtle);
+    padding-bottom: var(--space-1);
+  }
+  .trends-page__footer {
+    margin-top: var(--space-3);
+    padding-top: var(--space-2);
+    border-top: 1px solid var(--border-subtle);
+    color: var(--text-muted);
+    font-size: var(--font-size-label);
+  }
+
+  .hot-pick__list { display: flex; flex-direction: column; gap: var(--space-2); }
+  .hot-pick {
+    background: var(--bg-surface);
+    border-left: 4px solid var(--border-subtle);
+    padding: var(--space-2) var(--space-3);
+  }
+  .hot-pick--new { border-left-color: var(--color-profit, #10b981); }
+  .hot-pick--dropped { border-left-color: var(--color-loss, #ef4444); opacity: 0.75; }
+  .hot-pick--unchanged { border-left-color: var(--border-default); }
+  .hot-pick__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-2);
+  }
+  .hot-pick__symbol { font-weight: 600; color: var(--text-primary); }
+  .hot-pick__rank { color: var(--text-muted); font-size: var(--font-size-small); }
+  .hot-pick__horizon { color: var(--accent); font-size: var(--font-size-small); }
+  .hot-pick__confidence { color: var(--text-muted); font-size: var(--font-size-label); }
+  .hot-pick__thesis { margin: var(--space-1) 0 0; color: var(--text-muted); font-size: var(--font-size-small); }
+  .hot-pick__strategy-link {
+    display: inline-block;
+    margin-top: var(--space-1);
+    color: var(--accent);
+    font-size: var(--font-size-label);
+    text-decoration: none;
+  }
+  .hot-pick__strategy-link:hover { text-decoration: underline; }
+
+  .btn-secondary {
+    background: transparent;
+    color: var(--accent);
+    border: 1px solid var(--border-default);
+    padding: var(--space-1) var(--space-3);
+    font-family: inherit;
+    font-size: var(--font-size-small);
+    cursor: pointer;
+  }
+  .btn-secondary:hover { border-color: var(--accent); }
 </style>
 {% endblock %}

@@ -46,8 +46,12 @@
     </section>
   {% endif %}
 
-  {# New-strategy form (hidden by default, toggled by the button above). #}
-  <section id="strategy-new-form" class="strategy-form-section" hidden>
+  {# New-strategy form (hidden by default, toggled by the button above).
+     Story 10.3: when the Trends page redirects here with `prefill`
+     set, the form is shown automatically so Chef lands directly on
+     it without a second click. #}
+  <section id="strategy-new-form" class="strategy-form-section"
+           {% if not prefill %}hidden{% endif %}>
     {% include "fragments/strategy_form.html" %}
   </section>
 

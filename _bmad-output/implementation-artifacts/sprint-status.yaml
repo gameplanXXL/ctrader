@@ -134,10 +134,10 @@ development_status:
   # =========================================================================
   # EPIC 10: Gordon Trend-Radar
   # =========================================================================
-  epic-10: backlog
-  10-1-gordon-weekly-fetch: ready-for-dev
-  10-2-gordon-diff-hot-picks: ready-for-dev
-  10-3-strategy-candidate-from-hot-pick: ready-for-dev
+  epic-10: review  # Yolo-mode implementation 2026-04-14 — gordon snapshots + diff + strategy prefill
+  10-1-gordon-weekly-fetch: review
+  10-2-gordon-diff-hot-picks: review
+  10-3-strategy-candidate-from-hot-pick: review  # weekly cron registration pending Story 11.1 APScheduler framework
 
   # =========================================================================
   # EPIC 11: System-Health & Scheduled Operations (swapped with old Epic 12 on 2026-04-14)

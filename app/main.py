@@ -31,6 +31,7 @@ from app.logging import configure_logging, get_logger
 from app.routers import api as api_router
 from app.routers import approvals as approvals_router
 from app.routers import debug as debug_router
+from app.routers import gordon as gordon_router
 from app.routers import pages as pages_router
 from app.routers import regime as regime_router
 from app.routers import strategies as strategies_router
@@ -200,6 +201,10 @@ app.include_router(approvals_router.router)
 # Epic 9: Regime-Awareness API (POST /api/regime/snapshot manual trigger).
 # The scheduled-job registration lands in Story 11.1 System-Health.
 app.include_router(regime_router.router)
+
+# Epic 10: Gordon Trend-Radar API (POST /api/gordon/fetch manual trigger).
+# The weekly cron registration lands in Story 11.1 System-Health.
+app.include_router(gordon_router.router)
 
 # JSON API — command palette + query presets (Epic 4).
 app.include_router(api_router.router)

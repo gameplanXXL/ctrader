@@ -73,12 +73,20 @@ async def strategies_page(
     request: Request,
     selected: int | None = None,
     group_by_horizon: bool = False,
+    prefill_symbol: str | None = None,
+    prefill_horizon: str | None = None,
+    prefill_source_snapshot_id: int | None = None,
 ):
     """Story 6.2 — two-pane strategy page.
 
     Renders every strategy with its metrics in the left pane. If
     `?selected=<id>` is present, the right pane eagerly fetches the
     detail; otherwise Chef clicks a row to lazy-load it via HTMX.
+
+    Story 10.3: when the Trends page's HOT-pick link redirects here
+    with `?prefill_symbol=NVDA&prefill_horizon=swing_short&
+    prefill_source_snapshot_id=5`, those values hydrate the create
+    form so Chef can save with one click.
     """
 
     db_pool = getattr(request.app.state, "db_pool", None)
@@ -104,6 +112,22 @@ async def strategies_page(
             logger.exception("strategies_page.db_error", error=str(exc))
             db_error = True
 
+    prefill: dict[str, Any] | None = None
+    if prefill_symbol or prefill_horizon or prefill_source_snapshot_id:
+        name = (
+            f"{prefill_symbol} ({prefill_horizon})"
+            if prefill_symbol and prefill_horizon
+            else (prefill_symbol or "")
+        )
+        prefill = {
+            "name": name,
+            "symbol": prefill_symbol,
+            "horizon": prefill_horizon,
+            "source_snapshot_id": prefill_source_snapshot_id,
+            # Gordon is the only prefill source today.
+            "trigger_sources": ["gordon"] if prefill_source_snapshot_id else [],
+        }
+
     context: dict[str, Any] = {
         "active_route": "strategies",
         "mcp_agents": get_all_agents(),
@@ -116,6 +140,7 @@ async def strategies_page(
         "group_by_horizon": group_by_horizon,
         "taxonomy": get_taxonomy(),
         "db_error": db_error,
+        "prefill": prefill,
     }
     return templates.TemplateResponse(request, "pages/strategies.html", context)
 
@@ -178,6 +203,16 @@ async def create_strategy_route(request: Request):
         logger.warning("strategy.create_invalid", error=str(exc))
         raise HTTPException(status_code=422, detail=str(exc)) from None
 
+    # Story 10.3 — linkage back to the Gordon snapshot this strategy
+    # was created from. Optional form field; empty string → None.
+    source_snapshot_id: int | None = None
+    raw_snap = data.get("source_snapshot_id")
+    if raw_snap not in (None, "", "None"):
+        try:
+            source_snapshot_id = int(raw_snap)
+        except (TypeError, ValueError):
+            source_snapshot_id = None
+
     db_pool = await _require_pool(request)
     import asyncpg as _asyncpg
 
@@ -200,6 +235,25 @@ async def create_strategy_route(request: Request):
         except Exception as exc:  # noqa: BLE001
             logger.warning("strategy.create_failed", error=str(exc))
             raise HTTPException(status_code=500, detail="could not create strategy") from None
+
+        if source_snapshot_id is not None:
+            try:
+                await conn.execute(
+                    "UPDATE strategies SET source_snapshot_id = $1 WHERE id = $2",
+                    source_snapshot_id,
+                    strategy.id,
+                )
+                logger.info(
+                    "strategy.linked_to_snapshot",
+                    strategy_id=strategy.id,
+                    source_snapshot_id=source_snapshot_id,
+                )
+            except _asyncpg.ForeignKeyViolationError:
+                logger.warning(
+                    "strategy.source_snapshot_missing",
+                    strategy_id=strategy.id,
+                    source_snapshot_id=source_snapshot_id,
+                )
 
     # Code-review M6 / BH-27 / EC-22: HX-Redirect lets HTMX navigate
     # the browser AND deliver the showToast trigger. A plain
