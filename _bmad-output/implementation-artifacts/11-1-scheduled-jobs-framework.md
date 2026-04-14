@@ -1,6 +1,9 @@
-# Story 12.1: Scheduled-Jobs-Framework & Ausfuehrungs-Logging
+# Story 11.1: Scheduled-Jobs-Framework & Ausfuehrungs-Logging
 
 Status: ready-for-dev
+
+<!-- Renumbered 2026-04-14 from 12.1 → 11.1 per PM-scope-update (Epic 11 ↔ 12 swap, Chef request). Content unchanged. -->
+
 
 ## Story
 

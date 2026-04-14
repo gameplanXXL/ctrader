@@ -1,6 +1,9 @@
-# Story 12.2: Health-Widget & System-Status-Anzeige
+# Story 11.2: Health-Widget & System-Status-Anzeige
 
 Status: ready-for-dev
+
+<!-- Renumbered 2026-04-14 from 12.2 → 11.2 per PM-scope-update (Epic 11 ↔ 12 swap, Chef request). Content unchanged. -->
+
 
 ## Story
 

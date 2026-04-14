@@ -1,6 +1,9 @@
-# Story 12.3: Taegliche PostgreSQL-Backups & Recovery
+# Story 11.3: Taegliche PostgreSQL-Backups & Recovery
 
 Status: ready-for-dev
+
+<!-- Renumbered 2026-04-14 from 12.3 → 11.3 per PM-scope-update (Epic 11 ↔ 12 swap, Chef request). Content unchanged. -->
+
 
 ## Story
 

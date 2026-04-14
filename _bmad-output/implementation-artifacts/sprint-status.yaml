@@ -140,18 +140,22 @@ development_status:
   10-3-strategy-candidate-from-hot-pick: ready-for-dev
 
   # =========================================================================
-  # EPIC 11: IB Quick-Order (FR53-58, Post-IR-Cleanup 2026-04-13)
+  # EPIC 11: System-Health & Scheduled Operations (swapped with old Epic 12 on 2026-04-14)
   # =========================================================================
   epic-11: backlog
-  11-1-quick-order-form: ready-for-dev
-  11-2-confirmation-bracket-order: ready-for-dev
-  11-3-quick-order-status-auto-tagging: ready-for-dev
-  11-4-quick-order-error-handling: ready-for-dev
+  11-1-scheduled-jobs-framework: ready-for-dev
+  11-2-health-widget: ready-for-dev
+  11-3-daily-postgres-backups: ready-for-dev
 
   # =========================================================================
-  # EPIC 12: System-Health & Scheduled Operations
+  # EPIC 12: IB Swing-Order — Aktien & Single-Leg-Optionen (FR53-58)
+  #   2026-04-14: Scope expanded from Aktien-only + Trailing-Stop to
+  #   Aktien + Single-Leg-Options (Long/Short Call/Put, Fokus Short-Verkauf)
+  #   with fester Stop-Loss auf Aktien- oder Option-Preis. Epic swapped
+  #   from position 11 to position 12 (ans Ende der Pipeline).
   # =========================================================================
   epic-12: backlog
-  12-1-scheduled-jobs-framework: ready-for-dev
-  12-2-health-widget: ready-for-dev
-  12-3-daily-postgres-backups: ready-for-dev
+  12-1-quick-order-form-stock-and-option: ready-for-dev
+  12-2-confirmation-bracket-order-fixed-stop: ready-for-dev
+  12-3-order-status-tracking-near-assignment: ready-for-dev
+  12-4-error-handling-transient-terminal: ready-for-dev
