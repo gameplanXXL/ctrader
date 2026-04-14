@@ -146,15 +146,49 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # Story 12.3: wire the fill-event handler so FILLED events
         # from the Quick-Order client land as trade rows with
         # auto-tagged trigger_spec.
+        #
+        # Code-review EC-3: after the trade row lands, fire a
+        # `capture_fundamental_snapshot` task so the drilldown's
+        # "Damals" column is populated for Quick-Order trades too
+        # — same pattern as `ib_live_sync.handle_execution` (Epic 8
+        # Tranche A H8 for bot trades).
         db_pool_for_quick_events = app.state.db_pool
+        mcp_client_for_quick_events = app.state.mcp_client
 
         async def _on_quick_order_fill(event) -> None:
             if db_pool_for_quick_events is None:
                 return
+            from app.services.fundamental_snapshot import capture_fundamental_snapshot
             from app.services.ib_quick_order import handle_fill_event
 
             async with db_pool_for_quick_events.acquire() as event_conn:
-                await handle_fill_event(event_conn, event)
+                result = await handle_fill_event(event_conn, event)
+
+            trade_id = result.get("trade_id") if isinstance(result, dict) else None
+            if trade_id is None or mcp_client_for_quick_events is None:
+                return
+
+            try:
+                async with db_pool_for_quick_events.acquire() as snap_conn:
+                    row = await snap_conn.fetchrow(
+                        "SELECT symbol, asset_class FROM trades WHERE id = $1",
+                        trade_id,
+                    )
+                    if row is None:
+                        return
+                    await capture_fundamental_snapshot(
+                        snap_conn,
+                        trade_id=trade_id,
+                        symbol=row["symbol"],
+                        asset_class=row["asset_class"],
+                        mcp_client=mcp_client_for_quick_events,
+                    )
+            except Exception as exc:  # noqa: BLE001 — fire-and-forget
+                logger.warning(
+                    "quick_order.snapshot_failed",
+                    trade_id=trade_id,
+                    error=str(exc),
+                )
 
         await app.state.ib_quick_order_client.subscribe_execution_events(_on_quick_order_fill)
 
@@ -196,11 +230,17 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # left over from a killed previous process BEFORE starting
         # the scheduler so the Health-Widget doesn't render a
         # permanent stuck row.
+        #
+        # Code-review BH-1 / EC-15 (Epic 12): also sweep any
+        # `quick_orders` rows that crashed mid-submit — persisted
+        # BEFORE the network call and never got an `ib_order_id`.
         try:
             async with app.state.db_pool.acquire() as conn:
+                from app.services.ib_quick_order import sweep_orphan_quick_orders
                 from app.services.scheduler import sweep_stranded_jobs
 
                 await sweep_stranded_jobs(conn)
+                await sweep_orphan_quick_orders(conn)
         except Exception as exc:  # noqa: BLE001
             logger.warning("app.scheduler_sweep_failed", error=str(exc))
 

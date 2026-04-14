@@ -43,6 +43,7 @@ from app.logging import get_logger
 from app.services.ib_error_map import (
     IBTerminalError,
     IBTransientError,
+    format_for_operator,
 )
 
 logger = get_logger(__name__)
@@ -99,9 +100,12 @@ class QuickOrderPreview:
 _DEFAULT_MAX_ATTEMPTS = 3
 _DEFAULT_INITIAL_DELAY_SECONDS = 1.0
 _DEFAULT_MAX_DELAY_SECONDS = 60.0
+# Code-review BH-6: `IBTransientError` subclasses `ConnectionError`, so
+# listing both in the retry tuple is redundant (the parent catches the
+# child). Keep `TimeoutError` because asyncio sockets raise bare
+# `TimeoutError` on a blown read deadline.
 _RETRYABLE_EXCEPTIONS: tuple[type[BaseException], ...] = (
     IBTransientError,
-    ConnectionError,
     TimeoutError,
 )
 
@@ -360,7 +364,9 @@ async def submit_quick_order(
     try:
         result = await place_order_with_retry(client, request)
     except IBTerminalError as exc:
-        # Mark the row rejected and propagate.
+        # Mark the row rejected and propagate. Code-review EC-17:
+        # route the raw code through `format_for_operator` so the
+        # user-facing 422 detail is German + carries the IB code.
         async with conn.transaction():
             await conn.execute(
                 _UPDATE_QUICK_ORDER_STATUS_SQL,
@@ -368,7 +374,12 @@ async def submit_quick_order(
                 None,
                 row_id,
             )
-        raise QuickOrderSubmitError(str(exc)) from None
+        operator_msg = (
+            format_for_operator(exc.error_code)
+            if exc.error_code is not None
+            else exc.german_message or str(exc)
+        )
+        raise QuickOrderSubmitError(operator_msg) from None
     except IBTransientError as exc:
         logger.error(
             "ib_quick_order.submit.retry_exhausted",
@@ -434,6 +445,11 @@ async def handle_fill_event(
     trigger_spec (Story 12.3 AC #2).
 
     Returns a dict describing what changed, useful for tests.
+
+    Code-review EC-16: the status update + trade INSERT are wrapped
+    in a single transaction so a crash between the two cannot leave
+    `quick_orders.status='filled'` with no matching `trades` row
+    (invariant: every `filled` quick_order has a trade).
     """
 
     row = await conn.fetchrow(_SELECT_QUICK_ORDER_BY_REF_SQL, event.order_ref)
@@ -444,43 +460,52 @@ async def handle_fill_event(
         )
         return {"quick_order_id": None, "trade_id": None, "status": None}
 
-    # Update status (+ ib_order_id on the first event that has one).
-    await conn.execute(
-        _UPDATE_QUICK_ORDER_STATUS_SQL,
-        event.status,
-        event.ib_order_id,
-        row["id"],
-    )
-
     trade_id: int | None = None
-    if event.status == "filled":
-        # Auto-tag the new trade. Story 12.3 AC #2 requires strategy,
-        # trigger_source, horizon='swing', and asset_class flow from
-        # the QuickOrder into `trades.trigger_spec`.
-        trigger_spec = {
-            "source": "quick_order",
-            "asset_class": row["asset_class"],
-            "horizon": row["horizon"] or "swing",
-            "trigger_type": row["trigger_source"] or "quick_order",
-            "strategy_id": row["strategy_id"],
-        }
-
-        trade_id = await conn.fetchval(
-            _INSERT_TRADE_ON_FILL_SQL,
-            row["symbol"],
-            row["asset_class"],
-            row["side"],
-            event.filled_quantity,
-            event.filled_price,
-            event.execution_time,
+    async with conn.transaction():
+        # Update status (+ ib_order_id on the first event that has one).
+        await conn.execute(
+            _UPDATE_QUICK_ORDER_STATUS_SQL,
+            event.status,
             event.ib_order_id,
-            trigger_spec,
-            row["strategy_id"],
-            row["option_expiry"],
-            row["option_strike"],
-            row["option_right"],
-            row["option_multiplier"] or (100 if row["asset_class"] == "option" else None),
+            row["id"],
         )
+
+        if event.status == "filled":
+            # Auto-tag the new trade. Story 12.3 AC #2 requires
+            # strategy, trigger_source, horizon='swing_short', and
+            # asset_class flow from the QuickOrder into
+            # `trades.trigger_spec`.
+            #
+            # Code-review EC-8: canonical horizon value is
+            # `swing_short` (matches HORIZON_LABELS and the taxonomy
+            # facet). The old `swing` literal was not a valid facet
+            # value and `HORIZON_LABELS` had no `swing` key.
+            trigger_spec = {
+                "source": "quick_order",
+                "asset_class": row["asset_class"],
+                "horizon": row["horizon"] or "swing_short",
+                "trigger_type": row["trigger_source"] or "quick_order",
+                "strategy_id": row["strategy_id"],
+            }
+
+            trade_id = await conn.fetchval(
+                _INSERT_TRADE_ON_FILL_SQL,
+                row["symbol"],
+                row["asset_class"],
+                row["side"],
+                event.filled_quantity,
+                event.filled_price,
+                event.execution_time,
+                event.ib_order_id,
+                trigger_spec,
+                row["strategy_id"],
+                row["option_expiry"],
+                row["option_strike"],
+                row["option_right"],
+                row["option_multiplier"] or (100 if row["asset_class"] == "option" else None),
+            )
+
+    if event.status == "filled":
         if trade_id is None:
             logger.info(
                 "ib_quick_order.trade_dedup",
@@ -503,3 +528,46 @@ async def handle_fill_event(
         "trade_id": trade_id,
         "status": event.status,
     }
+
+
+# ---------------------------------------------------------------------------
+# Startup sweep (Tranche A — BH-1 / EC-15)
+# ---------------------------------------------------------------------------
+
+
+_SWEEP_ORPHAN_QUICK_ORDERS_SQL = """
+UPDATE quick_orders
+   SET status = 'rejected'::order_status
+ WHERE status = 'submitted'::order_status
+   AND ib_order_id IS NULL
+   AND created_at < NOW() - INTERVAL '5 minutes'
+RETURNING id
+"""
+
+
+async def sweep_orphan_quick_orders(conn: asyncpg.Connection) -> int:
+    """Mark any crashed-mid-submit `quick_orders` rows as rejected.
+
+    Code-review BH-1 / EC-15: `submit_quick_order` persists BEFORE
+    the network call (correct for idempotency — NFR-R3a), which
+    means a crash between the INSERT and `place_bracket_order`
+    leaves a row in `status='submitted'` with `ib_order_id=NULL`
+    forever. On the next startup, sweep any such row older than
+    5 minutes to `rejected` so the operator sees the failure in
+    the Quick-Order history instead of a ghost "in-flight" row.
+
+    5 minutes is safely longer than the retry-loop worst case
+    (3 attempts × 60s max backoff = 3m), so an in-flight legitimate
+    submit is never clobbered.
+
+    Returns the number of rows swept.
+    """
+
+    rows = await conn.fetch(_SWEEP_ORPHAN_QUICK_ORDERS_SQL)
+    if rows:
+        logger.info(
+            "ib_quick_order.sweep_orphans",
+            count=len(rows),
+            ids=[r["id"] for r in rows],
+        )
+    return len(rows)

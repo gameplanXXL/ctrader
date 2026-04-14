@@ -75,7 +75,11 @@ SELECT
     perm_id,
     trigger_spec,
     agent_id,
-    strategy_id
+    strategy_id,
+    option_expiry,
+    option_strike,
+    option_right,
+    option_multiplier
   FROM trades
  WHERE {where_sql}
  ORDER BY opened_at DESC, id DESC
@@ -114,6 +118,10 @@ SELECT
     trigger_spec,
     agent_id,
     strategy_id,
+    option_expiry,
+    option_strike,
+    option_right,
+    option_multiplier,
     created_at,
     updated_at
   FROM trades

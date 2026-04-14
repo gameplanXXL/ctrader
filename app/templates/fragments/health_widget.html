@@ -12,7 +12,8 @@
   <h2 class="health-widget__title">System Health</h2>
 
   <div class="health-widget__dots">
-    {% for key in ['ib', 'ctrader', 'mcp'] %}
+    {% for key in ['ib', 'ib_quick_order', 'ctrader', 'mcp'] %}
+      {% if health.get(key) %}
       {% set integration = health[key] %}
       <div class="health-widget__dot-row">
         <span class="health-dot health-dot--{{ integration.dot }}"
@@ -21,6 +22,7 @@
         <span class="health-widget__dot-label">{{ integration.label }}</span>
         <span class="health-widget__dot-detail">{{ integration.detail }}</span>
       </div>
+      {% endif %}
     {% endfor %}
   </div>
 

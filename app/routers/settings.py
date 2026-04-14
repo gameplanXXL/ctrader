@@ -47,6 +47,9 @@ async def _load_health(request: Request):
             mcp_client=getattr(request.app.state, "mcp_client", None),
             mcp_available=getattr(request.app.state, "mcp_available", False),
             ctrader_client=getattr(request.app.state, "ctrader_client", None),
+            ib_quick_order_client=getattr(
+                request.app.state, "ib_quick_order_client", None
+            ),
         )
 
 

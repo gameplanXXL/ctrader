@@ -81,6 +81,13 @@ def _coerce_date(value: Any) -> date | None:
         return None
 
 
+# Code-review BH-4 / Auditor 12.1 #6: enforce the spec's "min 5 DTE"
+# invariant at the router boundary. Options closer than 5 DTE are
+# near-assignment territory and Chef must use the post-hoc
+# taxonomy_mistake path, not Quick-Order.
+_MIN_OPTION_DTE = 5
+
+
 def _parse_form(form: dict[str, Any]) -> QuickOrderForm:
     """Translate raw form dict → `QuickOrderForm` with validation.
 
@@ -112,6 +119,20 @@ def _parse_form(form: dict[str, Any]) -> QuickOrderForm:
     if stop_price <= 0:
         raise HTTPException(status_code=422, detail="stop_price must be > 0")
 
+    # Code-review BH-3 / Auditor 12.1 #6: stop on the wrong side of
+    # limit means negative risk — an input error, not a valid order.
+    # BUY: stop < limit (stop out below entry). SELL: stop > limit.
+    if side == "BUY" and stop_price >= limit_price:
+        raise HTTPException(
+            status_code=422,
+            detail="Stop-Loss muss unter dem Limit-Preis liegen (BUY)",
+        )
+    if side == "SELL" and stop_price <= limit_price:
+        raise HTTPException(
+            status_code=422,
+            detail="Stop-Loss muss über dem Limit-Preis liegen (SELL)",
+        )
+
     option_expiry: date | None = None
     option_strike: Decimal | None = None
     option_right: str | None = None
@@ -127,6 +148,16 @@ def _parse_form(form: dict[str, Any]) -> QuickOrderForm:
             raise HTTPException(
                 status_code=422,
                 detail="option_expiry + option_strike required for option orders",
+            )
+        # Code-review BH-4 / Auditor 12.1 #6: enforce DTE floor.
+        dte = (option_expiry - date.today()).days
+        if dte < _MIN_OPTION_DTE:
+            raise HTTPException(
+                status_code=422,
+                detail=(
+                    f"Option-Expiry {option_expiry.isoformat()} ist {dte} DTE — "
+                    f"Minimum {_MIN_OPTION_DTE} DTE (unter 5 Tagen ist near-assignment)"
+                ),
             )
         option_multiplier = int(form.get("option_multiplier") or 100)
 

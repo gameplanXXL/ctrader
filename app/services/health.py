@@ -31,6 +31,44 @@ def _ib_status(ib_available: bool) -> dict[str, Any]:
     }
 
 
+def _ib_quick_order_status(ib_quick_order_client: Any | None) -> dict[str, Any]:
+    """Health dot for the Epic 12 Quick-Order client.
+
+    Code-review EC-11: the existing `_ib_status` tracks Story 2.2's
+    live-sync handshake via `connect_ib`, which is a DIFFERENT wiring
+    from the Quick-Order client at `app.state.ib_quick_order_client`.
+    Two failure modes:
+      (a) TWS running → live-sync green → but Quick-Order still stub.
+      (b) TWS not running → live-sync grey → but Quick-Order stub
+          still renders `is_connected()=True` and the form is live.
+    A dedicated dot surfaces the stub vs real-adapter state so Chef
+    doesn't submit "orders" that land in memory only.
+    """
+
+    if ib_quick_order_client is None:
+        return {
+            "status": "disabled",
+            "label": "IB Quick-Order",
+            "dot": "grey",
+            "detail": "not configured",
+        }
+    from app.clients.ib_quick_order import StubIBQuickOrderClient
+
+    if isinstance(ib_quick_order_client, StubIBQuickOrderClient):
+        return {
+            "status": "stub",
+            "label": "IB Quick-Order",
+            "dot": "yellow",
+            "detail": "stub (real ib_async adapter pending)",
+        }
+    return {
+        "status": "ok",
+        "label": "IB Quick-Order",
+        "dot": "green",
+        "detail": "connected",
+    }
+
+
 def _ctrader_status(ctrader_client: Any | None) -> dict[str, Any]:
     """StubCTraderClient counts as 'stub' — Chef shouldn't confuse it
     with a live broker connection.
@@ -80,6 +118,7 @@ async def collect_health(
     mcp_client: MCPClient | None,
     mcp_available: bool,
     ctrader_client: Any | None,
+    ib_quick_order_client: Any | None = None,
 ) -> dict[str, Any]:
     """Assemble the full health payload.
 
@@ -103,6 +142,7 @@ async def collect_health(
 
     return {
         "ib": _ib_status(ib_available),
+        "ib_quick_order": _ib_quick_order_status(ib_quick_order_client),
         "ctrader": _ctrader_status(ctrader_client),
         "mcp": _mcp_status(mcp_available),
         "contract_test": contract_test,

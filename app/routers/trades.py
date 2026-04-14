@@ -126,6 +126,15 @@ async def trade_detail_fragment(request: Request, trade_id: int):
     except Exception as exc:  # noqa: BLE001
         logger.warning("fundamental.live_failed", trade_id=trade_id, error=str(exc))
 
+    # Code-review EC-1/EC-2 (Epic 12): compute `option_dte` server-side
+    # so the drilldown template can render Days-To-Expiry for option
+    # contracts without pulling a Python date helper into Jinja.
+    option_dte: int | None = None
+    if trade.get("asset_class") == "option" and trade.get("option_expiry"):
+        from datetime import date as _date
+
+        option_dte = (trade["option_expiry"] - _date.today()).days
+
     return templates.TemplateResponse(
         request,
         "fragments/trade_detail.html",
@@ -137,6 +146,7 @@ async def trade_detail_fragment(request: Request, trade_id: int):
             "historical_snapshot": historical_snapshot,
             "live_fundamental": live_fundamental,
             "live_staleness": live_staleness,
+            "option_dte": option_dte,
         },
     )
 

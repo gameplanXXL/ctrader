@@ -64,6 +64,12 @@ PATTERNS: dict[str, str] = {
         "Chef {side_de} {symbol} aus Diskretion — {entry_reason} "
         "({horizon_label}, Confidence {confidence_pct}%)."
     ),
+    # Code-review EC-7 (Epic 12): Quick-Order rows previously fell
+    # through to DEFAULT_PATTERN and rendered "Unbekannt" everywhere.
+    # Chef's manual IB Swing-Order deserves its own provenance line.
+    "quick_order": (
+        "Chef {side_de} {symbol} per Quick-Order ({horizon_label})."
+    ),
 }
 
 # Fallback used when trigger_type is missing from the catalogue.

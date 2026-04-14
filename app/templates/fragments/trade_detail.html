@@ -27,6 +27,39 @@
     >&times;</button>
   </header>
 
+  {# Code-review EC-1/EC-2 + Auditor 12.3 #5: Option contract metadata.
+     Only shown for option trades so stock rows are unaffected. Exposes
+     Right · Strike · Expiry · DTE (+ Multiplier when non-default) so
+     Chef can identify the contract without leaving the drilldown. #}
+  {% if trade.asset_class == "option" and trade.option_expiry %}
+    <dl class="trade-detail__core trade-detail__option-meta">
+      <div class="trade-detail__field">
+        <dt>Right</dt>
+        <dd class="tabular">
+          {% if trade.option_right == "C" %}Call{% elif trade.option_right == "P" %}Put{% else %}—{% endif %}
+        </dd>
+      </div>
+      <div class="trade-detail__field">
+        <dt>Strike</dt>
+        <dd class="tabular">{{ trade.option_strike | format_price if trade.option_strike is not none else "—" }}</dd>
+      </div>
+      <div class="trade-detail__field">
+        <dt>Expiry</dt>
+        <dd class="tabular">{{ trade.option_expiry.isoformat() if trade.option_expiry else "—" }}</dd>
+      </div>
+      {% if option_dte is defined and option_dte is not none %}
+        <div class="trade-detail__field">
+          <dt>DTE</dt>
+          <dd class="tabular">{{ option_dte }}</dd>
+        </div>
+      {% endif %}
+      <div class="trade-detail__field">
+        <dt>Multiplier</dt>
+        <dd class="tabular">{{ trade.option_multiplier or 100 }}</dd>
+      </div>
+    </dl>
+  {% endif %}
+
   <dl class="trade-detail__core">
     <div class="trade-detail__field">
       <dt>Quantity</dt>
