@@ -2,12 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
+import pytest
+
 from app.services.db_backup import (
+    _pg_env_from_dsn,
     _resolve_backup_dir,
     get_backup_info,
     rotate_backups,
@@ -16,6 +20,7 @@ from app.services.scheduler import (
     JOB_NAMES,
     get_last_job_runs,
     logged_job,
+    sweep_stranded_jobs,
 )
 
 # ---------------------------------------------------------------------------
@@ -40,7 +45,7 @@ class _FakeConn:
 
     async def execute(self, sql: str, *args: Any) -> str:
         self.calls.append(("execute", sql, args))
-        return "UPDATE 1"
+        return self._canned.get("execute", "UPDATE 1")
 
 
 class _FakePool:
@@ -217,3 +222,122 @@ def test_resolve_backup_dir_creates_with_secure_permissions(tmp_path: Path) -> N
     assert target.exists()
     # Permissions: 0o700 (owner rwx only)
     assert target.stat().st_mode & 0o777 == 0o700
+
+
+def test_resolve_backup_dir_tightens_preexisting_perms(tmp_path: Path) -> None:
+    """Code-review EC-11 / BH-23: if the directory was created with
+    a laxer umask (host bind-mount scenario), the service must force
+    0o700 on every call, not just on initial mkdir.
+    """
+
+    target = tmp_path / "backups"
+    target.mkdir(mode=0o755)
+    assert target.stat().st_mode & 0o777 == 0o755
+    _resolve_backup_dir(target)
+    assert target.stat().st_mode & 0o777 == 0o700
+
+
+def test_pg_env_from_dsn_extracts_password() -> None:
+    """Code-review H1 / BH-1: password must never appear on the
+    argv of pg_dump. `_pg_env_from_dsn` extracts credentials into
+    env-var form so they're only visible in the child process's
+    environment, not in `ps aux`.
+    """
+
+    env = _pg_env_from_dsn("postgresql://ctrader:s3cret@db-host:5432/ctrader_db")
+    assert env["PGHOST"] == "db-host"
+    assert env["PGPORT"] == "5432"
+    assert env["PGUSER"] == "ctrader"
+    assert env["PGPASSWORD"] == "s3cret"
+    assert env["PGDATABASE"] == "ctrader_db"
+
+
+def test_pg_env_from_dsn_handles_url_encoded_password() -> None:
+    """A password containing `@` or `/` must be URL-encoded in the
+    DSN. The extractor must decode it back to plain text."""
+
+    env = _pg_env_from_dsn("postgresql://user:p%40ss%2Fword@host/db")
+    assert env["PGPASSWORD"] == "p@ss/word"
+
+
+# ---------------------------------------------------------------------------
+# sweep_stranded_jobs — M1 / BH-8 / EC-12
+# ---------------------------------------------------------------------------
+
+
+async def test_sweep_stranded_jobs_returns_count() -> None:
+    """The startup sweep must flip all `running` rows to `failure`
+    and return the touched count so the lifespan log is informative.
+    """
+
+    conn = _FakeConn(canned={"execute": "UPDATE 3"})
+    touched = await sweep_stranded_jobs(conn)
+    assert touched == 3
+    assert conn.calls == [
+        (
+            "execute",
+            """
+UPDATE job_executions
+   SET status = 'failure',
+       completed_at = NOW(),
+       error_message = 'stranded on restart (process died mid-run)'
+ WHERE status = 'running'
+""",
+            (),
+        )
+    ]
+
+
+async def test_sweep_stranded_jobs_handles_zero_rows() -> None:
+    conn = _FakeConn(canned={"execute": "UPDATE 0"})
+    touched = await sweep_stranded_jobs(conn)
+    assert touched == 0
+
+
+# ---------------------------------------------------------------------------
+# logged_job — CancelledError writes 'cancelled' status, not 'failure'
+# ---------------------------------------------------------------------------
+
+
+async def test_logged_job_writes_cancelled_on_shutdown_signal() -> None:
+    """Code-review BH-7 / EC-12: a clean shutdown signal is NOT a
+    failure — the row is written with status='cancelled' and the
+    wrapper re-raises so APScheduler can finish the shutdown dance.
+    """
+
+    conn = _FakeConn()
+    pool = _FakePool(conn)
+
+    async def cancelling_job() -> None:
+        raise asyncio.CancelledError
+
+    wrapped = logged_job("gordon_weekly", cancelling_job, pool)
+
+    with pytest.raises(asyncio.CancelledError):
+        await wrapped()
+
+    cancelled_updates = [c for c in conn.calls if "status = 'cancelled'" in c[1]]
+    assert len(cancelled_updates) == 1
+
+
+async def test_logged_job_writes_failure_with_typed_exception_name() -> None:
+    """Code-review EC-20 follow-up: error_message should carry the
+    exception class name so forensics can distinguish a TimeoutError
+    from a ValueError without opening structlog.
+    """
+
+    conn = _FakeConn()
+    pool = _FakePool(conn)
+
+    async def type_mismatch_job() -> None:
+        raise ValueError("bad payload")
+
+    wrapped = logged_job("mcp_contract_test", type_mismatch_job, pool)
+    await wrapped()
+
+    failure_updates = [c for c in conn.calls if "status = 'failure'" in c[1]]
+    assert len(failure_updates) == 1
+    _, _, args = failure_updates[0]
+    # args = (row_id, error_message)
+    assert "ValueError" in args[1]
+    assert "bad payload" in args[1]

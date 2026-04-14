@@ -142,10 +142,10 @@ development_status:
   # =========================================================================
   # EPIC 11: System-Health & Scheduled Operations (swapped with old Epic 12 on 2026-04-14)
   # =========================================================================
-  epic-11: review  # Yolo-mode implementation 2026-04-14 — APScheduler framework + health widget + pg_dump backups
-  11-1-scheduled-jobs-framework: review
-  11-2-health-widget: review
-  11-3-daily-postgres-backups: review
+  epic-11: done  # Tranche A applied 2026-04-14 (18 patches + Migration 017); D232 Chef decision required for IB Flex Nightly cron
+  11-1-scheduled-jobs-framework: done  # 4 of 5 cron jobs wired; IB Flex Nightly deferred as D232
+  11-2-health-widget: done
+  11-3-daily-postgres-backups: done
 
   # =========================================================================
   # EPIC 12: IB Swing-Order — Aktien & Single-Leg-Optionen (FR53-58)

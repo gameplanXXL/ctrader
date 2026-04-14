@@ -52,13 +52,34 @@ async def _load_health(request: Request):
 
 @router.get("/api/health", include_in_schema=False)
 async def api_health(request: Request):
-    """HTMX-polled health fragment used by the top-bar status dots."""
+    """Full health-widget fragment. Reused by the Settings page and
+    any future HTMX poller that wants the whole payload (job runs +
+    contract test + backup metadata + dots).
+    """
 
     health = await _load_health(request)
     return templates.TemplateResponse(
         request,
         "fragments/health_widget.html",
-        {"health": health, "compact": True},
+        {"health": health, "compact": False},
+    )
+
+
+@router.get("/api/health/dots", include_in_schema=False)
+async def api_health_dots(request: Request):
+    """Tiny dots-only fragment used by the top-bar HTMX poller
+    (Story 11.2 AC #2 + AC #3 / Code-review H9 + H10 / EC-5 + EC-6).
+
+    Under 1KB so the 5-second poll stays cheap. Returns only the
+    three integration dots — the full widget lives on the Settings
+    page via the `/api/health` endpoint.
+    """
+
+    health = await _load_health(request)
+    return templates.TemplateResponse(
+        request,
+        "fragments/topbar_health_dots.html",
+        {"health": health},
     )
 
 

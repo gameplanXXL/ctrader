@@ -29,12 +29,13 @@
     {% endfor %}
   </nav>
 
-  <div class="ctrader-health" role="status" aria-label="System-Status">
-    {# Placeholder dots — wired up to real health in Story 12.2. #}
-    <span class="health-dot health-dot--muted" title="IB Gateway: unbekannt"></span>
-    <span class="health-dot health-dot--muted" title="cTrader: unbekannt"></span>
-    <span class="health-dot health-dot--muted" title="MCP: unbekannt"></span>
-  </div>
+  {# Story 11.2 AC #2 / AC #3 / Code-review H9 + H10 / EC-5 + EC-6:
+     Top-bar status dots poll the `/api/health/dots` fragment every
+     5 seconds via HTMX. The fragment owns its own outer wrapper
+     (hx-get + hx-trigger) so the outerHTML swap replaces the whole
+     unit in place. On the very first render `health` is undefined
+     and the fragment falls back to muted placeholder dots. #}
+  {% include "fragments/topbar_health_dots.html" %}
 </header>
 
 <style>

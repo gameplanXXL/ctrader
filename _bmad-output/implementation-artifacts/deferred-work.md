@@ -345,3 +345,37 @@ This file is append-only — never delete entries, only mark them done.
 
 ### Deferred (legitimate)
 - **D231** Story 10.1 AC #2 cron scheduler registration is deferred to Story 11.1 (APScheduler framework). Manual trigger `POST /api/gordon/fetch` + the fetch-and-persist service contract are fully in place. Story 11.1 needs exactly one `scheduler.add_job(fetch_and_persist, CronTrigger(day_of_week='mon', hour=6, timezone='UTC'))` call. *Source: commit-message-explicit*
+
+## Epic 11 — System-Health & Scheduled Operations (deferred findings)
+
+### Blocking dependencies / AC gaps needing Chef decision
+
+- **D232 CHEF DECISION NEEDED**: Story 11.1 AC #2 lists 5 cron jobs; only 4 are registered in Tranche A (regime_snapshot, gordon_weekly, mcp_contract_test, db_backup). **IB Flex Nightly is missing** because `app/services/ib_flex_import::import_flex_xml` takes an XML string parameter — it's not a self-contained job. Options: (a) add a filesystem watcher that picks up XML drops in `data/ib-flex-inbox/`, (b) add an IB Flex Web Service API caller that downloads the XML directly, (c) officially descope to Phase 2 and update Story 11.1. *Source: Auditor 11.1 AC#2 / EC — out-of-scope for Tranche A.*
+
+- **D233** The top-bar health dots poll `/api/health/dots` every 5 seconds (code-review H9/H10). If Chef has 100+ browser tabs open (unlikely), that's 20 req/s on the endpoint. Acceptable for single-user localhost, but if multi-user auth lands, revisit. *Source: follow-up*
+
+### db_backup robustness
+- **D234** `shutdown_scheduler(wait=False)` kills in-flight `pg_dump` mid-write. The new `*.sql.gz.part` atomic rename means a partial file never shows up under the `ctrader-*.sql.gz` glob, so it's safe — but the partial `.part` file stays on disk until the next run unlinks it. Consider a startup cleanup pass that deletes `*.part` files. *Source: BH-9 / EC-22*
+- **D235** `sorted(glob("ctrader-*.sql.gz"))` in `rotate_backups` + `get_backup_info` is alphabetic. The new ISO8601 timestamp format (`YYYY-MM-DDTHHMMSSZ`) sorts correctly, but a future filename change could break the sort. Consider explicit `stat().st_mtime` sort. *Source: BH-12*
+- **D236** No Dockerfile check that `pg_dump` version matches the server. Currently hardcoded `postgresql-client-16` — if the compose file flips to postgres:17 later, pg_dump 16 will refuse. Add a `pg_dump --version` probe on container startup with a warning. *Source: follow-up*
+
+### Scheduler robustness
+- **D237** `logged_job`'s `_PER_JOB_TIMEOUT_SECONDS = 600` (10 min) is a hard-coded cap. For a multi-GB `pg_dump` (hypothetical future) this could be tight. Move to a per-job override or a settings config. *Source: BH-5 follow-up*
+- **D238** APScheduler uses the default in-memory jobstore. On restart, all jobs are re-registered from code — no persistent state. A 04:00 UTC backup killed by a 03:55 UTC restart is lost for that day. Worth documenting in docs/recovery.md. *Source: EC follow-up*
+- **D239** `setup_scheduler` passes `db_pool` + `mcp_client` to job factories via closures. If `app.state.db_pool` is ever reassigned (pool reset feature), the closures still point at the original. Not a current bug — flag for future. *Source: Auditor follow-up*
+
+### Health / observability
+- **D240** `/api/health` returns the FULL health widget fragment (~3KB). The top-bar uses the smaller `/api/health/dots` endpoint (~500B). A future operator dashboard could hit `/api/health` directly but the 5-second poll cost would be higher. Acceptable. *Source: EC-8 follow-up*
+- **D241** Story 11.2 AC #4 "Taxonomie-Editor" is rendered read-only (just lists entries from `taxonomy.yaml`). Edit-UI is officially Phase 2. *Source: Task 6 explicit defer*
+- **D242** Story 11.2 Audit-Log viewer has NO filter by `event_type` and NO pagination — just the latest 50 rows. Story 11.2 Task 7 asks for both. Filter + pagination are Phase-2 polish. *Source: Task 7 explicit descope*
+- **D243** `get_backup_info` is called synchronously from `collect_health` (`async def`). Filesystem glob + stat on 7 files is trivial but blocks the event loop. `get_backup_info_async` helper exists but is unused. *Source: BH-17 / EC-11*
+
+### Recovery documentation
+- **D244** `docs/recovery.md` doesn't mention the `*.part` temp file cleanup step or the in-flight `pg_dump` shutdown race. A test-recovery dry-run should verify partial files don't surface. *Source: BH-9 / EC-22 follow-up*
+- **D245** No automated test that `docs/recovery.md` actually produces a restorable dump. NFR-R5 explicitly asks Chef to test-restore once during the MVP cycle — should be added as a scheduled manual task in the sprint plan. *Source: NFR-R5 check*
+
+### Test coverage
+- **D246** No integration test for `setup_scheduler` proving that all 4 jobs are actually registered and fire correctly through a testcontainer → `job_executions` round-trip. *Source: EC-17*
+- **D247** No test for `/api/health/dots` endpoint rendering the 3-dot fragment via TestClient. *Source: follow-up*
+- **D248** No test for `create_backup` streaming behavior against a real pg_dump (would need a testcontainer + real binary). *Source: follow-up*
+- **D249** No test for `create_backup` cleanup on OOM-kill or interrupted write (the `BaseException` cleanup path). Covered by inspection only. *Source: follow-up*

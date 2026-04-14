@@ -162,6 +162,19 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         # (regime snapshot, Gordon weekly, DB backup, MCP contract
         # test) are wired here — see `app.services.scheduler`. The
         # scheduler is in-process (NFR-M6) and stopped on teardown.
+        #
+        # Code-review M1 / BH-8 / EC-12: sweep any `running` rows
+        # left over from a killed previous process BEFORE starting
+        # the scheduler so the Health-Widget doesn't render a
+        # permanent stuck row.
+        try:
+            async with app.state.db_pool.acquire() as conn:
+                from app.services.scheduler import sweep_stranded_jobs
+
+                await sweep_stranded_jobs(conn)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("app.scheduler_sweep_failed", error=str(exc))
+
         try:
             app.state.scheduler = setup_scheduler(
                 db_pool=app.state.db_pool,

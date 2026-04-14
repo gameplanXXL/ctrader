@@ -1,0 +1,30 @@
+{#
+  Top-bar health dots — HTMX-polled every 5s (Story 11.2 AC #2 + #3).
+  This is deliberately tiny (3 spans + an outer wrapper) so the 5s
+  poll payload stays under 1KB.
+
+  The fragment is either rendered by a page load (via `{% include %}`
+  in `_topbar.html`) OR by the `/api/health/dots` endpoint in
+  `app/routers/settings.py`. In the include-case `health` may be None
+  (page template didn't load it) — fall back to muted placeholder.
+#}
+<div
+  class="ctrader-health"
+  role="status"
+  aria-label="System-Status"
+  hx-get="/api/health/dots"
+  hx-trigger="load, every 5s"
+  hx-swap="outerHTML"
+>
+  {% if health %}
+    {% for key in ['ib', 'ctrader', 'mcp'] %}
+      {% set integration = health[key] %}
+      <span class="health-dot health-dot--{{ integration.dot }}"
+            title="{{ integration.label }}: {{ integration.detail }}"></span>
+    {% endfor %}
+  {% else %}
+    <span class="health-dot health-dot--muted" title="IB: unbekannt"></span>
+    <span class="health-dot health-dot--muted" title="cTrader: unbekannt"></span>
+    <span class="health-dot health-dot--muted" title="MCP: unbekannt"></span>
+  {% endif %}
+</div>

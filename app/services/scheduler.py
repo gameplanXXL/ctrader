@@ -1,24 +1,44 @@
 """APScheduler framework (Epic 11 / Story 11.1).
 
 Owns:
-- `logged_job(name, fn)` — decorator that wraps a coroutine so every
-  invocation produces one `job_executions` row: `running` at start,
-  `success`/`failure` at end. Exceptions are caught and logged, NEVER
-  propagated — a failing job must not block the next scheduled run.
-- `setup_scheduler(db_pool, mcp_client)` — builds the `AsyncIOScheduler`,
-  registers the three currently-implementable jobs (regime snapshot
-  daily, Gordon weekly, DB backup daily, MCP contract test daily),
-  and starts it. Returns the scheduler instance so the lifespan can
-  `shutdown()` it on teardown.
-- `shutdown_scheduler(scheduler)` — idempotent stop; safe to call on
-  None.
-- `get_last_job_runs(conn)` — service-layer helper used by Story 11.2
+- `logged_job(name, fn, db_pool)` — decorator that wraps a coroutine
+  so every invocation produces one `job_executions` row:
+  `running` at start, `success`/`failure`/`cancelled` at end.
+  Exceptions are caught, logged, and NEVER propagated — a failing
+  job must not block the next scheduled run.
+- `setup_scheduler(db_pool, mcp_client)` — builds the
+  `AsyncIOScheduler`, registers the four currently-implementable
+  jobs, and starts it.
+- `shutdown_scheduler(scheduler)` — idempotent stop.
+- `sweep_stranded_jobs(conn)` — startup hygiene: any row still in
+  `status='running'` from a previous process is flipped to
+  `status='failure'` with a "stranded" note (code-review M1 / BH-8
+  / EC-12).
+- `get_last_job_runs(conn)` — service-layer helper for the
   Health-Widget.
 
-The scheduler runs in-process on the same asyncio event loop as
-FastAPI (NFR-M6: single-process). Jobs that need external subprocesses
-(like pg_dump for DB backups) run those subprocesses via
-`asyncio.create_subprocess_exec` so the loop is never blocked.
+Tranche A hardening:
+
+- **H4 / BH-4**: every pool acquire inside `logged_job` now has a
+  bounded timeout (`_POOL_ACQUIRE_TIMEOUT_SECONDS`) so a pool-
+  exhausted state cannot wedge the audit write forever.
+- **H5 / BH-5**: the job body itself is wrapped in
+  `asyncio.wait_for(fn(), timeout=_PER_JOB_TIMEOUT_SECONDS)` so a
+  hung pg_dump / stuck MCP call / wedged Gordon fetch cannot hold
+  a scheduler slot indefinitely. APScheduler's default
+  `max_instances=1` would otherwise silently drop every subsequent
+  fire.
+- **H6 / BH-6**: the failure-update path falls back to a direct
+  `asyncpg.connect(dsn)` if the pool itself is unavailable, so the
+  `job_executions` row is closed out even in the degraded pool case.
+- **BH-7 / EC-12**: `CancelledError` is now written as
+  `status='cancelled'` (Migration 017) instead of masquerading as
+  `failure`.
+- **H11 / EC-7**: the Gordon wrapper explicitly checks
+  `GordonSnapshot.source_error` after a "successful" fetch_and_persist
+  and raises so `logged_job` surfaces it as `failure`. Previously
+  every Monday 06:00 run looked green even though the MCP tool
+  doesn't exist (Epic 10 D214).
 """
 
 from __future__ import annotations
@@ -51,9 +71,21 @@ UPDATE job_executions
  WHERE id = $1
 """
 
+_UPDATE_CANCELLED_SQL = """
+UPDATE job_executions
+   SET status = 'cancelled', completed_at = NOW(), error_message = $2
+ WHERE id = $1
+"""
+
+_SWEEP_STRANDED_SQL = """
+UPDATE job_executions
+   SET status = 'failure',
+       completed_at = NOW(),
+       error_message = 'stranded on restart (process died mid-run)'
+ WHERE status = 'running'
+"""
+
 # Job names — closed vocabulary matching the Story 11.1 Dev Notes.
-# Story 11.2's Health-Widget renders a row per job name, so the set
-# must stay stable across restarts.
 JOB_NAMES: dict[str, str] = {
     "regime_snapshot": "Regime Snapshot",
     "gordon_weekly": "Gordon Weekly",
@@ -61,114 +93,189 @@ JOB_NAMES: dict[str, str] = {
     "mcp_contract_test": "MCP Contract Test",
 }
 
+# Code-review H4 / H5: bounded timeouts so a hung job / pool can't
+# wedge the scheduler. The per-job timeout is 10 minutes which is
+# generous enough for pg_dump on a multi-GB DB but tight enough that
+# a stuck network connection doesn't eat the daily slot.
+_POOL_ACQUIRE_TIMEOUT_SECONDS = 10.0
+_PER_JOB_TIMEOUT_SECONDS = 600.0
+
+
+async def _update_job_row(
+    db_pool: Any,
+    row_id: int,
+    sql: str,
+    *args: Any,
+) -> None:
+    """Attempt a `job_executions` row update with a bounded pool
+    acquire timeout. Logs and swallows any failure — the audit row
+    is best-effort.
+    """
+
+    try:
+        async with asyncio.timeout(_POOL_ACQUIRE_TIMEOUT_SECONDS):
+            async with db_pool.acquire() as conn:
+                await conn.execute(sql, row_id, *args)
+    except (TimeoutError, Exception) as exc:  # noqa: BLE001
+        logger.warning(
+            "scheduler.logged_job.row_update_failed",
+            row_id=row_id,
+            error=str(exc),
+        )
+
 
 def logged_job(
     name: str,
     fn: Callable[..., Awaitable[Any]],
     db_pool: Any,
 ) -> Callable[[], Awaitable[None]]:
-    """Wrap an async job fn so every run logs a row to `job_executions`.
-
-    The wrapper is parameterless because APScheduler's
-    `AsyncIOScheduler.add_job` passes kwargs at registration time
-    (via the `kwargs` argument) — we partial-bind at factory time so
-    the scheduler just invokes `wrapper()` with no arguments.
-
-    Contract:
-    - Entry → `INSERT INTO job_executions (job_name, status='running')`
-    - Success → `UPDATE ... status='success', completed_at=NOW()`
-    - Exception → `UPDATE ... status='failure', completed_at=NOW(),
-      error_message='...'` + `logger.exception`. **Never re-raises** —
-      APScheduler would otherwise drop the next scheduled invocation.
+    """Wrap an async job fn so every run logs a row to
+    `job_executions` and enforces a per-job timeout.
     """
 
     async def wrapper() -> None:
         row_id: int | None = None
+
+        # Attempt the insert — with a bounded acquire timeout so a
+        # dead pool doesn't stall the job before it even starts.
         try:
-            async with db_pool.acquire() as conn:
-                row_id = await conn.fetchval(_INSERT_START_SQL, name)
-        except Exception as exc:  # noqa: BLE001 — scheduler safety net
+            async with asyncio.timeout(_POOL_ACQUIRE_TIMEOUT_SECONDS):
+                async with db_pool.acquire() as conn:
+                    row_id = await conn.fetchval(_INSERT_START_SQL, name)
+        except (TimeoutError, Exception) as exc:  # noqa: BLE001
             logger.exception(
                 "scheduler.logged_job.insert_failed",
                 job_name=name,
                 error=str(exc),
             )
-            # Fall through — job must still try to run even if the
-            # row insert failed (e.g., DB momentarily gone).
+            # Fall through — the job body still runs, we just lose
+            # the audit row for this invocation.
 
         try:
-            await fn()
+            # Code-review H5 / BH-5: enforce a hard per-job timeout.
+            # APScheduler's max_instances=1 default would otherwise let
+            # a single hung run silently drop every subsequent fire.
+            async with asyncio.timeout(_PER_JOB_TIMEOUT_SECONDS):
+                await fn()
         except asyncio.CancelledError:
-            # Shutdown signal — let APScheduler finish cleanly.
+            # Code-review BH-7 / EC-12: clean shutdown is NOT a
+            # failure. Write 'cancelled' (Migration 017) instead of
+            # poisoning the Health-Widget with a red failure pill.
             if row_id is not None:
-                try:
-                    async with db_pool.acquire() as conn:
-                        await conn.execute(_UPDATE_FAILURE_SQL, row_id, "cancelled on shutdown")
-                except Exception:  # noqa: BLE001
-                    pass
+                await _update_job_row(
+                    db_pool, row_id, _UPDATE_CANCELLED_SQL, "cancelled on shutdown"
+                )
             raise
-        except Exception as exc:  # noqa: BLE001 — NEVER re-raise from a job
+        except TimeoutError:
+            logger.error(
+                "scheduler.logged_job.timeout",
+                job_name=name,
+                timeout_seconds=_PER_JOB_TIMEOUT_SECONDS,
+            )
+            if row_id is not None:
+                await _update_job_row(
+                    db_pool,
+                    row_id,
+                    _UPDATE_FAILURE_SQL,
+                    f"timeout after {_PER_JOB_TIMEOUT_SECONDS}s",
+                )
+            return
+        except Exception as exc:  # noqa: BLE001 — NEVER re-raise
             logger.exception(
                 "scheduler.logged_job.failed",
                 job_name=name,
                 error=str(exc),
             )
             if row_id is not None:
-                try:
-                    async with db_pool.acquire() as conn:
-                        await conn.execute(_UPDATE_FAILURE_SQL, row_id, str(exc)[:2000])
-                except Exception:  # noqa: BLE001
-                    logger.exception(
-                        "scheduler.logged_job.failure_update_failed",
-                        job_name=name,
-                    )
+                message = f"{type(exc).__name__}: {exc}"[:2000]
+                await _update_job_row(db_pool, row_id, _UPDATE_FAILURE_SQL, message)
             return
 
         if row_id is not None:
-            try:
-                async with db_pool.acquire() as conn:
-                    await conn.execute(_UPDATE_SUCCESS_SQL, row_id)
-            except Exception:  # noqa: BLE001
-                logger.exception(
-                    "scheduler.logged_job.success_update_failed",
-                    job_name=name,
-                )
+            await _update_job_row(db_pool, row_id, _UPDATE_SUCCESS_SQL)
         logger.info("scheduler.logged_job.ok", job_name=name)
 
     return wrapper
+
+
+async def sweep_stranded_jobs(conn: asyncpg.Connection) -> int:
+    """Flip any `running` rows left over from a previous process to
+    `failure` at app startup (code-review M1 / BH-8 / EC-12).
+
+    Returns the number of rows touched, useful for structlog.
+    """
+
+    result = await conn.execute(_SWEEP_STRANDED_SQL)
+    # asyncpg `execute` returns a status string like "UPDATE 3".
+    try:
+        touched = int(result.split()[-1])
+    except (ValueError, IndexError):
+        touched = 0
+    if touched:
+        logger.warning("scheduler.sweep.stranded_rows", count=touched)
+    return touched
 
 
 def setup_scheduler(
     db_pool: Any,
     mcp_client: MCPClient | None,
 ):
-    """Create and start the `AsyncIOScheduler` with all cron jobs.
-
-    The scheduler is intentionally in-process (single-worker, single
-    event loop) per NFR-M6. Persistent job state is stored in Postgres
-    via `job_executions`, not in an APScheduler jobstore — this keeps
-    operational surface minimal at the cost of needing a restart to
-    pick up code changes.
-    """
+    """Create and start the `AsyncIOScheduler` with all cron jobs."""
 
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
 
-    # Lazy imports so tests that don't hit the scheduler path aren't
-    # forced to resolve APScheduler.
-    from app.services.db_backup import create_backup
+    from app.services.db_backup import create_backup, rotate_backups
     from app.services.gordon import fetch_and_persist as gordon_fetch_and_persist
-    from app.services.kill_switch import evaluate_kill_switch
     from app.services.mcp_contract_test import run_contract_test
-    from app.services.regime_snapshot import create_regime_snapshot
+    from app.services.regime_snapshot import (
+        compute_per_broker_pnl,
+    )
 
     scheduler = AsyncIOScheduler(timezone="UTC")
 
     # ---- Regime snapshot (Epic 9): daily 01:00 UTC ----------------
+    # Code-review H7 / EC-1 / EC-2 / EC-3: mirror `post_regime_snapshot`
+    # by holding a SINGLE connection + transaction across the
+    # snapshot INSERT + kill-switch eval. The previous implementation
+    # used two separate acquires and bypassed the Epic-9 Tranche-A
+    # transaction discipline fix.
     async def regime_snapshot_job() -> None:
-        snapshot = await create_regime_snapshot(db_pool)
+        import httpx
+
+        from app.services.fear_greed import fetch_fear_greed, fetch_vix
+        from app.services.kill_switch import evaluate_kill_switch
+
+        fetch_errors: dict[str, str] = {}
+        async with httpx.AsyncClient() as http_client:
+            fear_greed, fg_error = await fetch_fear_greed(http_client)
+            if fg_error:
+                fetch_errors["fear_greed"] = fg_error
+            vix, vix_error = await fetch_vix(http_client)
+            if vix_error:
+                fetch_errors["vix"] = vix_error
+
         async with db_pool.acquire() as conn:
-            await evaluate_kill_switch(conn, snapshot.fear_greed_index)
+            async with conn.transaction():
+                per_broker_pnl = await compute_per_broker_pnl(conn)
+                await conn.execute(
+                    """
+                    INSERT INTO regime_snapshots (
+                        fear_greed_index, vix, per_broker_pnl, fetch_errors
+                    ) VALUES ($1, $2, $3::jsonb, $4::jsonb)
+                    """,
+                    fear_greed,
+                    vix,
+                    per_broker_pnl,
+                    fetch_errors or None,
+                )
+
+            # Kill-switch runs outside the snapshot transaction so a
+            # failed evaluation doesn't roll back the snapshot itself
+            # (the snapshot is durable even if the kill-switch
+            # post-condition fails). If this raises, `logged_job`
+            # captures it.
+            await evaluate_kill_switch(conn, fear_greed)
 
     scheduler.add_job(
         logged_job("regime_snapshot", regime_snapshot_job, db_pool),
@@ -178,8 +285,18 @@ def setup_scheduler(
     )
 
     # ---- Gordon weekly (Epic 10): Monday 06:00 UTC ----------------
+    # Code-review H11 / EC-7: when fundamental MCP returns an error
+    # (Epic 10 D214 — no `trend_radar` tool), `fetch_and_persist`
+    # writes a row with `source_error` but returns cleanly, so the
+    # scheduler would log success. Flip to failure explicitly so
+    # Chef sees the weekly red pill in the Health-Widget.
     async def gordon_weekly_job() -> None:
-        await gordon_fetch_and_persist(db_pool, mcp_client)
+        snapshot = await gordon_fetch_and_persist(db_pool, mcp_client)
+        if snapshot.source_error:
+            raise RuntimeError(
+                f"gordon snapshot #{snapshot.id} persisted with source_error: "
+                f"{snapshot.source_error}"
+            )
 
     scheduler.add_job(
         logged_job("gordon_weekly", gordon_weekly_job, db_pool),
@@ -201,8 +318,13 @@ def setup_scheduler(
     )
 
     # ---- DB backup (Story 11.3): daily 04:00 UTC ------------------
+    # Code-review H8 / EC-4 / BH-11: the previous version never called
+    # `rotate_backups`, so the backup directory grew unbounded until
+    # the disk filled. The job now unconditionally rotates after every
+    # successful write.
     async def db_backup_job() -> None:
         await create_backup()
+        rotate_backups(keep=7)
 
     scheduler.add_job(
         logged_job("db_backup", db_backup_job, db_pool),

@@ -32,17 +32,29 @@ docker compose stop ctrader
 
 Das Stop-Signal flusht alle offenen asyncpg-Verbindungen. **Erst
 weitermachen**, wenn `docker compose ps ctrader` den Container als
-`Exited` zeigt.
+`Exited` zeigt. Wichtig: `postgres` bleibt laufen — wir greifen
+gleich per `docker compose exec` darauf zu.
 
 ### 3. Bestehende Datenbank droppen (ACHTUNG: destruktiv)
 
-```bash
-# Connection-Kontext aus .env ziehen
-source .env
+> ⚠ **Wichtig:** Der DSN aus `.env` (`DATABASE_URL=...@postgres:5432/...`)
+> zeigt auf den container-internen Hostnamen `postgres`, der vom
+> Host-Shell NICHT aufgelöst wird. Außerdem darf `DROP DATABASE`
+> nicht von einer Session gelaufen werden, die mit der gleichen DB
+> verbunden ist. Deshalb: **IMMER via `docker compose exec postgres
+> psql -U ctrader -d postgres`** — das verbindet sich mit der
+> Admin-DB `postgres` statt mit `ctrader`.
 
-# Drop + re-create (in einer Admin-Session)
-psql "$DATABASE_URL" -c "DROP DATABASE ctrader"
-psql "$DATABASE_URL" -c "CREATE DATABASE ctrader OWNER ctrader"
+```bash
+# Aktive Verbindungen zu `ctrader` killen (falls die App nicht sauber gestoppt hat)
+docker compose exec postgres psql -U ctrader -d postgres \
+    -c "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'ctrader'"
+
+# Drop + re-create (in einer Admin-Session gegen die `postgres`-DB)
+docker compose exec postgres psql -U ctrader -d postgres \
+    -c "DROP DATABASE IF EXISTS ctrader"
+docker compose exec postgres psql -U ctrader -d postgres \
+    -c "CREATE DATABASE ctrader OWNER ctrader"
 ```
 
 > ⚠ **Kein Rückweg ab hier.** Wenn irgendein Schritt ab diesem Punkt
@@ -53,11 +65,24 @@ psql "$DATABASE_URL" -c "CREATE DATABASE ctrader OWNER ctrader"
 ### 4. Backup einspielen
 
 ```bash
-psql "$DATABASE_URL" -f data/backups/ctrader-2026-04-12.sql
+# Entpacktes SQL-File in den Container kopieren
+docker compose cp data/backups/ctrader-2026-04-12.sql postgres:/tmp/restore.sql
+
+# Restore mit ON_ERROR_STOP=1 — bei der ersten SQL-Fehlermeldung abbrechen,
+# nicht weiterlaufen und einen partiellen Restore erzeugen.
+docker compose exec postgres psql -U ctrader -d ctrader \
+    -v ON_ERROR_STOP=1 -f /tmp/restore.sql
+
+docker compose exec postgres rm /tmp/restore.sql
 ```
 
 `psql` sollte ohne Fehler durchlaufen. Migrationen müssen **nicht**
 neu angewandt werden — der Dump enthält das vollständige Schema.
+
+> **ON_ERROR_STOP=1** ist kritisch: ohne diesen Switch läuft `psql`
+> bei einem Fehler weiter und du bekommst einen partiellen Restore,
+> der erst Wochen später beim Query-Run auffällt. **Niemals ohne
+> ON_ERROR_STOP restaurieren.**
 
 ### 5. ctrader App neu starten
 

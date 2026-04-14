@@ -559,14 +559,17 @@ async def settings_page(request: Request):
     """Story 11.2 — Settings page with Health-Widget + backup section.
 
     Loads the full health payload via `collect_health` and threads it
-    into the template. Degrades gracefully (health=None) when the DB
-    pool is unavailable.
+    into the template along with the most recent audit_log rows
+    (code-review H13 / Auditor 11.2 #4) and the current taxonomy
+    (read-only preview). Degrades gracefully when the DB pool is
+    unavailable.
     """
 
     from app.services.health import collect_health
 
     db_pool = getattr(request.app.state, "db_pool", None)
     health = None
+    audit_entries: list = []
     if db_pool is not None and hasattr(db_pool, "acquire"):
         try:
             async with db_pool.acquire() as conn:
@@ -577,8 +580,25 @@ async def settings_page(request: Request):
                     mcp_available=getattr(request.app.state, "mcp_available", False),
                     ctrader_client=getattr(request.app.state, "ctrader_client", None),
                 )
+                audit_rows = await conn.fetch(
+                    """
+                    SELECT id, event_type, proposal_id, strategy_id,
+                           actor, notes, created_at
+                      FROM audit_log
+                     ORDER BY created_at DESC, id DESC
+                     LIMIT 50
+                    """
+                )
+                audit_entries = [dict(row) for row in audit_rows]
         except Exception as exc:  # noqa: BLE001
             logger.exception("pages.settings.db_error", error=str(exc))
             health = None
+            audit_entries = []
 
-    return await _render(request, "settings", health=health)
+    return await _render(
+        request,
+        "settings",
+        health=health,
+        audit_entries=audit_entries,
+        taxonomy=get_taxonomy(),
+    )

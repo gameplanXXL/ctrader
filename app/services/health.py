@@ -34,6 +34,10 @@ def _ib_status(ib_available: bool) -> dict[str, Any]:
 def _ctrader_status(ctrader_client: Any | None) -> dict[str, Any]:
     """StubCTraderClient counts as 'stub' — Chef shouldn't confuse it
     with a live broker connection.
+
+    Code-review M5 / EC-19: use `isinstance` instead of a string class
+    name check so a future rename of `StubCTraderClient` doesn't
+    silently flip the dot from yellow to green.
     """
 
     if ctrader_client is None:
@@ -43,8 +47,9 @@ def _ctrader_status(ctrader_client: Any | None) -> dict[str, Any]:
             "dot": "grey",
             "detail": "not configured",
         }
-    class_name = type(ctrader_client).__name__
-    if class_name == "StubCTraderClient":
+    from app.clients.ctrader import StubCTraderClient
+
+    if isinstance(ctrader_client, StubCTraderClient):
         return {
             "status": "stub",
             "label": "cTrader",

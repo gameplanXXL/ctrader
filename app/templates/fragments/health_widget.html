@@ -24,6 +24,33 @@
     {% endfor %}
   </div>
 
+  {# Code-review H12 / EC-8: render contract_test + backup from the
+     fragment too, not just inline in settings.html. The /api/health
+     endpoint now returns a self-contained widget payload so an HTMX
+     poll doesn't structurally shrink the rendered section. #}
+  <div class="health-widget__meta">
+    <div class="health-widget__meta-item">
+      <span class="health-widget__meta-label">MCP Contract Test</span>
+      <span class="health-widget__meta-value">
+        {% if health.contract_test %}
+          {{ health.contract_test.status | upper }} · {{ health.contract_test.run_at | format_datetime }}
+          {% if health.contract_test.has_drift %}
+            <span class="health-widget__pill health-widget__pill--fail">DRIFT</span>
+          {% endif %}
+        {% else %}—{% endif %}
+      </span>
+    </div>
+    <div class="health-widget__meta-item">
+      <span class="health-widget__meta-label">Letztes Backup</span>
+      <span class="health-widget__meta-value">
+        {% if health.backup %}
+          {{ health.backup.modified_at | format_datetime }}
+          · {{ (health.backup.size_bytes / 1024 / 1024) | round(2) }} MB
+        {% else %}—{% endif %}
+      </span>
+    </div>
+  </div>
+
   <h3 class="health-widget__section-title">Letzte Job-Läufe</h3>
   <table class="health-widget__jobs">
     <thead>
@@ -124,5 +151,21 @@
   .health-widget__pill--running { background: var(--color-warn, #f59e0b); color: white; }
   .health-widget__pill--idle { background: var(--border-subtle); color: var(--text-muted); }
   .health-widget__err { color: var(--text-muted); font-size: var(--font-size-label); }
+  .health-widget__meta {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+    padding: var(--space-2) var(--space-4);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-subtle);
+  }
+  .health-widget__meta-item { display: flex; flex-direction: column; }
+  .health-widget__meta-label {
+    font-size: var(--font-size-label);
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+  }
+  .health-widget__meta-value { font-size: var(--font-size-small); }
 </style>
 {% endif %}
