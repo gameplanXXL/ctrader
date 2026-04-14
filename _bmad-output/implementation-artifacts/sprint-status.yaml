@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T02:00'
+last_updated: '2026-04-14T03:00'
 notes: |
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
@@ -75,9 +75,9 @@ development_status:
   # EPIC 5: Fundamental-Integration (MCP-Layer)
   # =========================================================================
   epic-5: in-progress
-  5-1-mcp-fundamental-cache: review
-  5-2-fundamental-trade-drilldown: review
-  5-3-graceful-degradation-staleness: review
+  5-1-mcp-fundamental-cache: done
+  5-2-fundamental-trade-drilldown: done
+  5-3-graceful-degradation-staleness: done
   5-4-mcp-contract-test: review  # Scheduler wiring moves to Story 12.1; manual POST works
 
   # =========================================================================

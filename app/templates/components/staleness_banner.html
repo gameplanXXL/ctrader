@@ -47,15 +47,16 @@
       </ul>
     </div>
   {% else %}
-    {# Empty span preserves HTMX swap target. When severity improves
-       the polling swap replaces the whole banner, which then stays
-       empty until the next deterioration. #}
-    <span id="staleness-banner" hidden
+    {# Empty div preserves HTMX swap target. Code-review M7 / BH-23:
+       previously a <span> which got replaced on severity increase,
+       but outerHTML span→div swaps can orphan attached state. A
+       self-consistent <div> is safer. #}
+    <div id="staleness-banner" class="staleness-banner staleness-banner--empty" hidden
       {% if polling %}
       hx-get="/api/mcp-status"
       hx-trigger="every 60s"
       hx-swap="outerHTML"
-      {% endif %}></span>
+      {% endif %}></div>
   {% endif %}
 {% endmacro %}
 

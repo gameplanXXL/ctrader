@@ -116,6 +116,22 @@ async def capture_fundamental_snapshot(
         )
         return None
 
+    # Code-review M4 / EC-15: skip vacuous snapshots. An MCP response
+    # that decoded to `{rating=UNKNOWN, thesis=""}` usually means the
+    # server returned a non-JSON preamble or an empty-payload "sorry,
+    # no data". Persisting it pollutes the fundamental_snapshots
+    # table and muddies the "damals vs jetzt" drilldown comparison.
+    from app.models.fundamental import FundamentalRating as _Rating
+
+    assessment = result.assessment
+    if assessment.rating is _Rating.UNKNOWN and not assessment.thesis.strip():
+        logger.info(
+            "fundamental_snapshot.skipped_vacuous",
+            trade_id=trade_id,
+            symbol=symbol,
+        )
+        return None
+
     # Serialize the assessment to JSONB via the codec registered in
     # app.db.pool.init_connection. Passing the dict directly is
     # enough — the codec `json.dumps(..., default=str)` handles any

@@ -25,10 +25,10 @@ path must return a `FundamentalResult` or `None`, never raise.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 from typing import Any
 
+import httpx
 from cachetools import TTLCache
 
 from app.clients.mcp import MCPClient
@@ -80,8 +80,34 @@ _stale_cache: dict[tuple[str, str], FundamentalResult] = {}
 _STALE_MAX_ENTRIES = 1024
 
 
-def _fresh_cache_for(asset_class: str) -> TTLCache | None:
-    return _fresh_caches.get(asset_class.lower())
+def _as_stale(result: FundamentalResult | None) -> FundamentalResult | None:
+    """Mark a stale-fallback result with `is_stale=True` before returning.
+
+    Code-review H2 / EC-1: previously every return path handed back a
+    cached `FundamentalResult(is_stale=False)` even when the path was
+    the error-fallback, so the drilldown's stale-badge (`is_stale`)
+    was dead code. Rebuild the result here so callers can reliably
+    distinguish fresh vs fallback.
+    """
+
+    if result is None:
+        return None
+    return FundamentalResult(
+        assessment=result.assessment,
+        cached_at=result.cached_at,
+        is_stale=True,
+        source_agent=result.source_agent,
+    )
+
+
+def _fresh_cache_for(asset_class: str | None) -> TTLCache | None:
+    """Code-review M5 / EC-10: normalize via the same rule as
+    `_cache_key` so a trailing-whitespace asset_class doesn't bypass
+    the cache entirely. Also tolerates `None` defensively."""
+
+    if not asset_class:
+        return None
+    return _fresh_caches.get(asset_class.lower().strip())
 
 
 def _cache_key(symbol: str, asset_class: str) -> tuple[str, str]:
@@ -124,20 +150,42 @@ def _parse_rating(raw: Any, agent: str) -> FundamentalRating:
 
 
 def _parse_confidence(raw: Any) -> float:
-    """Accept 0..1 floats or 0..100 percentages. Out-of-range clamps."""
+    """Accept 0..1 floats or 0..100 percentages. Out-of-range clamps.
 
-    if raw is None:
+    Code-review H7 / BH-4: reject `bool` explicitly — `True/False`
+    coerce to `1.0/0.0` via `float()`, which would silently pass
+    through as fake confidence values. We also reject NaN since
+    Pydantic's `ge/le` constraints raise on NaN and the "never raise"
+    contract must not be broken by a rogue MCP response.
+    """
+
+    if raw is None or isinstance(raw, bool):
         return 0.0
     try:
         value = float(raw)
     except (TypeError, ValueError):
+        return 0.0
+    if value != value:  # NaN check — NaN is the only value unequal to itself
         return 0.0
     if value > 1.0:
         value = value / 100.0
     return max(0.0, min(1.0, value))
 
 
-def _parse_mcp_response(raw: dict[str, Any], agent: str) -> FundamentalAssessment:
+# Keys consumed by the top-level assessment fields — everything else
+# goes into the `extra` bag. Kept together so the exclusion list and
+# the lookup order stay in sync.
+_RATING_FIELDS = ("rating", "signal", "recommendation", "verdict", "opinion")
+_CONFIDENCE_FIELDS = ("confidence", "score")
+_THESIS_FIELDS = ("thesis", "summary", "rationale")
+# Keys that belong to the MCP transport envelope — we don't want them
+# leaking into the stored `extra` bag (code-review M2 / BH-9).
+_MCP_METADATA_KEYS = frozenset(
+    {"content", "isError", "is_error", "_meta", "metadata", "jsonrpc", "id"}
+)
+
+
+def _parse_mcp_response(raw: Any, agent: str) -> FundamentalAssessment:
     """Convert a JSON-RPC `tools/call` response into an assessment.
 
     The MCP `fundamentals` tool returns `{"result": {"content": [...]}}`
@@ -145,55 +193,82 @@ def _parse_mcp_response(raw: dict[str, Any], agent: str) -> FundamentalAssessmen
     project wraps the assessment as JSON text in a single content
     entry. We probe a few likely shapes so we don't lockstep-break
     when the upstream adds fields.
+
+    Code-review H3 / EC-2 / EC-3: this function MUST NOT raise — the
+    "never raise" contract from `get_fundamental` relies on it. We
+    defensively normalize every unexpected shape (string, list,
+    scalar, None) into an empty payload and return an UNKNOWN
+    assessment instead of crashing the drilldown.
     """
 
-    result = raw.get("result") or {}
-    content = result.get("content") or []
+    if not isinstance(raw, dict):
+        return FundamentalAssessment(agent_id=agent)
+
+    result = raw.get("result")
+    if not isinstance(result, dict):
+        return FundamentalAssessment(agent_id=agent)
+
     payload: dict[str, Any] = {}
+    content = result.get("content")
 
     # Shape 1: `content` is a list of `{type: text, text: "<json>"}`
     if isinstance(content, list):
+        import json as _json
+
         for item in content:
-            if isinstance(item, dict):
-                text = item.get("text")
-                if isinstance(text, str):
-                    try:
-                        import json as _json
+            if not isinstance(item, dict):
+                continue
+            text = item.get("text")
+            if not isinstance(text, str):
+                continue
+            try:
+                parsed = _json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(parsed, dict):
+                payload = parsed
+                break
+    # Shape 1b: `content` is a single dict (some MCPs emit this).
+    elif isinstance(content, dict):
+        text = content.get("text")
+        if isinstance(text, str):
+            import json as _json
 
-                        parsed = _json.loads(text)
-                        if isinstance(parsed, dict):
-                            payload = parsed
-                            break
-                    except ValueError:
-                        continue
+            try:
+                parsed = _json.loads(text)
+                if isinstance(parsed, dict):
+                    payload = parsed
+            except ValueError:
+                pass
 
-    # Shape 2: `result` itself is the assessment dict.
-    if not payload and isinstance(result, dict):
-        payload = result
+    # Shape 2: `result` itself is the assessment dict — fall through
+    # when Shape 1 didn't produce anything useful.
+    if not payload:
+        payload = {k: v for k, v in result.items() if k not in _MCP_METADATA_KEYS}
 
     return FundamentalAssessment(
         agent_id=agent,
-        rating=_parse_rating(
-            payload.get("rating") or payload.get("signal") or payload.get("recommendation"),
-            agent,
-        ),
-        confidence=_parse_confidence(payload.get("confidence") or payload.get("score")),
-        thesis=str(payload.get("thesis") or payload.get("summary") or "").strip(),
+        rating=_parse_rating(_first_present(payload, _RATING_FIELDS), agent),
+        confidence=_parse_confidence(_first_present(payload, _CONFIDENCE_FIELDS)),
+        thesis=str(_first_present(payload, _THESIS_FIELDS) or "").strip(),
         extra={
             k: v
             for k, v in payload.items()
-            if k
-            not in (
-                "rating",
-                "signal",
-                "recommendation",
-                "confidence",
-                "score",
-                "thesis",
-                "summary",
-            )
+            if k not in _RATING_FIELDS
+            and k not in _CONFIDENCE_FIELDS
+            and k not in _THESIS_FIELDS
+            and k not in _MCP_METADATA_KEYS
         },
     )
+
+
+def _first_present(payload: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    """Return the first non-None value for any of `keys` in `payload`."""
+
+    for key in keys:
+        if key in payload and payload[key] is not None:
+            return payload[key]
+    return None
 
 
 # ---------------------------------------------------------------------------
@@ -205,8 +280,6 @@ async def get_fundamental(
     symbol: str,
     asset_class: str,
     mcp_client: MCPClient | None,
-    *,
-    timeout: float = 10.0,
 ) -> FundamentalResult | None:
     """Return a fundamental assessment for `symbol` / `asset_class`.
 
@@ -239,17 +312,19 @@ async def get_fundamental(
             symbol=symbol,
             asset_class=asset_class,
         )
-        return _stale_cache.get(key)
+        return _as_stale(_stale_cache.get(key))
 
+    # Code-review M1 / BH-3: the httpx client already enforces a
+    # per-request timeout (default 10s). We pass the explicit
+    # `timeout` kwarg through so callers can tighten it, and we
+    # still catch both `httpx.TimeoutException` and the builtin
+    # `TimeoutError` to cover any future asyncio.wait_for callers.
     try:
-        raw = await asyncio.wait_for(
-            mcp_client.call_tool(
-                "fundamentals",
-                {"symbol": symbol, "asset_class": asset_class, "agent": agent},
-            ),
-            timeout=timeout,
+        raw = await mcp_client.call_tool(
+            "fundamentals",
+            {"symbol": symbol, "asset_class": asset_class, "agent": agent},
         )
-    except TimeoutError as exc:
+    except (httpx.TimeoutException, TimeoutError) as exc:
         logger.warning(
             "fundamental.timeout",
             symbol=symbol,
@@ -257,7 +332,7 @@ async def get_fundamental(
             error=str(exc),
         )
         record_failure(agent)
-        return _stale_cache.get(key)
+        return _as_stale(_stale_cache.get(key))
     except Exception as exc:  # noqa: BLE001 — graceful degradation
         logger.warning(
             "fundamental.error",
@@ -267,7 +342,7 @@ async def get_fundamental(
             exc_type=type(exc).__name__,
         )
         record_failure(agent)
-        return _stale_cache.get(key)
+        return _as_stale(_stale_cache.get(key))
 
     assessment = _parse_mcp_response(raw, agent)
     now = datetime.now(UTC)

@@ -32,6 +32,12 @@ from app.services.ib_flex_import import upsert_trade
 
 logger = get_logger(__name__)
 
+# Code-review H4 / BH-13 / EC-17: hold strong references to every
+# in-flight fire-and-forget snapshot task so the GC can't collect
+# them mid-run. Python's `asyncio.create_task` docs explicitly
+# require callers to keep a reference for the task's lifetime.
+_background_tasks: set[asyncio.Task] = set()
+
 
 def _map_asset_class(sec_type: str | None) -> AssetClass | None:
     if sec_type is None:
@@ -173,6 +179,20 @@ async def handle_execution(
     snapshot capture. The capture runs in its own task with its own
     DB connection from the pool so the live-sync handler can return
     immediately.
+
+    Code-review M13 / EC-5 — wiring note for Story 12.1: when
+    `ib.execDetailsEvent` is subscribed, the event dispatcher
+    passes only the Trade argument. Use `functools.partial` to bind
+    `conn`, `mcp_client`, and `db_pool` at subscribe time:
+
+        from functools import partial
+        ib.execDetailsEvent += partial(
+            handle_execution,
+            conn=..., mcp_client=..., db_pool=...,
+        )
+
+    Without this, `mcp_client` and `db_pool` default to `None` and
+    the snapshot capture silently skips.
     """
 
     trade_in = execution_to_trade(trade_event)
@@ -196,7 +216,7 @@ async def handle_execution(
     )
 
     if inserted and mcp_client is not None and db_pool is not None:
-        asyncio.create_task(
+        task = asyncio.create_task(
             _capture_snapshot_fire_and_forget(
                 db_pool=db_pool,
                 trade_id=trade_id,
@@ -205,6 +225,8 @@ async def handle_execution(
                 mcp_client=mcp_client,
             )
         )
+        _background_tasks.add(task)
+        task.add_done_callback(_background_tasks.discard)
 
     return inserted
 

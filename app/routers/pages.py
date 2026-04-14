@@ -161,18 +161,24 @@ async def _base_context(request: Request) -> dict[str, Any]:
     return context
 
 
-def _render(request: Request, page: str, **extra: Any):
+async def _render(request: Request, page: str, **extra: Any):
     """Convenience wrapper: render a page template with active-route context.
 
-    Extra context is merged on top of the defaults.
+    Code-review H1 / BH-1 / EC-29: previously synchronous and
+    hardcoded `mcp_agents=get_all_agents(), contract_drift=None`,
+    which meant every non-journal page (strategies, approvals,
+    trends, regime, settings) silently missed the contract-drift
+    banner. Now awaits `_base_context()` so those pages share the
+    same MCP health + drift state as the journal.
+
+    Extra context is merged on top of the base defaults, with
+    `active_route` pinned AFTER merge so callers can't accidentally
+    override it.
     """
 
-    context: dict[str, Any] = {
-        "active_route": page,
-        "mcp_agents": get_all_agents(),
-        "contract_drift": None,
-    }
+    context = await _base_context(request)
     context.update(extra)
+    context["active_route"] = page
     return templates.TemplateResponse(
         request,
         f"pages/{page}.html",
@@ -454,24 +460,24 @@ async def mistakes_report_page(
 
 @router.get("/strategies", include_in_schema=False)
 async def strategies_page(request: Request):
-    return _render(request, "strategies")
+    return await _render(request, "strategies")
 
 
 @router.get("/approvals", include_in_schema=False)
 async def approvals_page(request: Request):
-    return _render(request, "approvals")
+    return await _render(request, "approvals")
 
 
 @router.get("/trends", include_in_schema=False)
 async def trends_page(request: Request):
-    return _render(request, "trends")
+    return await _render(request, "trends")
 
 
 @router.get("/regime", include_in_schema=False)
 async def regime_page(request: Request):
-    return _render(request, "regime")
+    return await _render(request, "regime")
 
 
 @router.get("/settings", include_in_schema=False)
 async def settings_page(request: Request):
-    return _render(request, "settings")
+    return await _render(request, "settings")

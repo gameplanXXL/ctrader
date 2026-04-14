@@ -182,20 +182,22 @@ async def test_get_fundamental_timeout_falls_back_to_stale() -> None:
         "result": {"content": [{"type": "text", "text": '{"rating":"BUY","confidence":0.5}'}]}
     }
     await get_fundamental("AAPL", "stock", mcp_client=mock_client)
-    clear_caches.__wrapped__ if hasattr(clear_caches, "__wrapped__") else None
-    # Keep stale — clear fresh only.
+
+    # Keep stale — clear fresh cache only so the next call cannot
+    # satisfy from the fresh TTLCache.
     from app.services.fundamental import _fresh_caches
 
     for cache in _fresh_caches.values():
         cache.clear()
 
-    # Now force a timeout on the next fetch.
-
+    # Force a timeout on the next fetch.
     mock_client.call_tool.side_effect = TimeoutError("mcp down")
     result = await get_fundamental("AAPL", "stock", mcp_client=mock_client)
     assert result is not None
-    # The stale cache still holds the first successful fetch.
+    # The stale cache still holds the first successful fetch,
+    # now flagged as stale (code-review H2 / EC-1).
     assert result.assessment.rating == FundamentalRating.BUY
+    assert result.is_stale is True
 
 
 # ---------------------------------------------------------------------------

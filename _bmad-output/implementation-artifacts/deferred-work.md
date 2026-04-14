@@ -140,3 +140,61 @@ This file is append-only — never delete entries, only mark them done.
 ### Operational / perf
 - **D101** 2000-trade performance test not run (AC 4.1/4.2 NFR-P3/P4). Revisit when dataset grows. *Source: acceptance-auditor*
 - **D102** `savePreset` JS is redeclared on every HTMX swap of the journal fragment; CSS duplicates accumulate. Extract to base.html. *Source: BH-40*
+
+---
+
+## Deferred from: code review of Epic 5 (Stories 5.1–5.4) — 2026-04-14
+
+### Fundamental service
+- **D103** Concurrent duplicate-fetch race — two `get_fundamental` calls for the same key both miss + both fetch. Add in-flight dedup via `asyncio.Future` keyed on cache_key. *Source: EC-11*
+- **D104** `_stale_cache` FIFO prune race — two coroutines could both trigger prune + double-drop. Single-user acceptable. *Source: EC-12*
+- **D105** `_stale_cache` prune fires even when the incoming key already exists — wasted drops on re-refresh. *Source: EC-13*
+- **D106** `_fresh_caches` is per-process — no cluster coherence. Acceptable for Single-User-Localhost. *Source: BH-2*
+- **D107** `_parse_confidence` `&gt; 1.0` ambiguity — `1.5` interpreted as 150% → 0.015 rather than 1.5%. Acknowledge in docstring. *Source: BH-5*
+- **D108** `_parse_mcp_response` no size guard on `json.loads(text)` — 10 MB rogue text would allocate freely. Add a size cap if MCP ever misbehaves. *Source: EC-8*
+- **D109** `_parse_mcp_response` breaks on first valid JSON, ignoring subsequent content items — a preamble like `{"type":"text","text":"Analysis result:"}` could win over the real payload. *Source: BH-10*
+- **D110** `text` as list-of-parts (streaming MCP) is dropped — need nested text-part concat when upstream streams. *Source: EC-9*
+
+### Fundamental snapshots
+- **D111** `capture_fundamental_snapshot` re-caches via `get_fundamental`, invalidating true "at-entry-time" semantics. "Damals" is actually "last MCP fetch for this symbol". Acknowledge in story notes. *Source: BH-29, EC-19*
+- **D112** Fire-and-forget snapshot task not drained on shutdown — SIGTERM during a live trade loses the snapshot. Add a lifespan-shutdown drain. *Source: BH-14, EC-17*
+- **D113** Fire-and-forget burst could saturate the asyncpg pool (max_size=10). Add a semaphore when burst patterns emerge. *Source: EC-18*
+- **D114** `as_assessment` fallback swallows exceptions and returns `agent_id=""` — log the reason. *Source: EC-16, BH-37*
+- **D115** `fundamental_snapshots.trade_id` has no UNIQUE — duplicate captures could stack on re-upsert. Add unique constraint when Epic 7/8 wiring lands. *Source: EC-49*
+- **D116** `get_latest_snapshot` unreachable str-coerce branch — the JSONB codec always returns dict. Remove dead code or convert to assert. *Source: EC-41*
+
+### MCP health + staleness
+- **D117** `mcp_health._state` module-level mutable — test fixture scopes resets, but `test_fundamental.py` can pollute via `record_success` side effects. Add cross-module reset. *Source: BH-27, EC-35*
+- **D118** `_KNOWN_AGENTS` duplicates `AGENT_NAMES` from `trigger_prose.py` — drift risk. Consolidate. *Source: BH-26*
+- **D119** Typo'd agent names (`record_failure("vikto")`) persist forever in banner. Add a "forget unknown" cleanup. *Source: BH-33*
+- **D120** `record_success / failure` increments not atomic — two coroutines could lose an increment. Single-User acceptable. *Source: EC-33*
+- **D121** Case-sensitivity: `record_success("Viktor")` vs `"viktor"` produces two rows in the banner. Normalize. *Source: EC-30*
+- **D122** `record_success/failure` never called on cache-hit path — health state can go stale if banner relies on it for "MCP last touched". Fine today. *Source: BH-32*
+
+### Contract test
+- **D123** `diff_contracts` uses strict dict equality — reordered keys / description strings / timestamp fields fire false "changed" alerts. Add a field whitelist or normalization. *Source: BH-22, EC-23*
+- **D124** APScheduler wiring for 05:00 UTC daily run — **defers to Story 12.1**. Currently only the on-demand API endpoint exists. *Source: Auditor*
+- **D125** Health-widget consumer for contract-test results — **defers to Story 12.2**. *Source: Auditor*
+- **D126** `DEFAULT_SNAPSHOT_DIR` resolution fragile when `app/` is moved. Make configurable via settings. *Source: EC-38*
+- **D127** `run_contract_test` exception branches catch then re-catch via generic `Exception`. Cosmetic. *Source: BH-17*
+- **D128** `_persist_report` expects the JSONB codec; integration tests using raw asyncpg conn without the codec would `DataError`. Route through a helper. *Source: BH-19*
+- **D129** Error message text in contract-test JSON response could leak internal exception details. Normalize for log hygiene. *Source: EC-44*
+- **D130** `run_contract_test` masks "snapshot missing" vs "snapshot corrupt" under the same error string. *Source: BH-21*
+
+### Drilldown / templates
+- **D131** `live.rating.value | upper` renders `UNKNOWN` — confusing to Chef. Render as "—" or "keine Einschätzung". *Source: EC-31*
+- **D132** Stale badge has no visual column-header affordance — Chef might miss the small badge. Add border-color accent. *Source: EC-32*
+- **D133** Chart / drilldown inline `<style>` duplication on HTMX swap — extract to base.html. *Source: BH-38*
+- **D134** HTMX swap of banner spans doesn't trigger screen-reader re-announcement. Low accessibility impact. *Source: EC-47*
+
+### Base context wiring
+- **D135** `_base_context` swallows DB probe failures to `contract_drift=None` — a partial DB outage silently hides drift banner. Log + surface degraded state. *Source: EC-28*
+- **D136** `_render` and `_base_context` duplicate default dicts — drift risk on future banner additions. Consolidate. *Source: EC-48*
+
+### Command palette + misc
+- **D137** Command palette `Ctrl+K` on CapsLock sends `'K'` and misses. Use `.toLowerCase()` on `evt.key`. *Source: EC-39, BH-28*
+- **D138** Banner polls every 60s regardless of state — even with all-ok. Log noise + wasted cycles. *Source: BH-24, BH-40*
+- **D139** Staleness banner inline `<style>` injected on every 60s poll. Move to base.html. *Source: BH-38*
+- **D140** `FundamentalAssessment.thesis` has no max_length — a rogue MCP could submit multi-MB text. Add a cap. *Source: EC-42*
+- **D141** `FundamentalResult.model_config frozen=True` doesn't protect nested `extra` dict. Use `MappingProxyType` when freeze matters. *Source: EC-36*
+- **D142** Future-dated `cached_at` &gt; 5s logs no warning — just returns the anomaly phrase. Add structlog line. *Source: BH-7 / H8 follow-up*

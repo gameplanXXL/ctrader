@@ -169,7 +169,12 @@ async def run_mcp_contract_test(request: Request) -> JSONResponse:
 
     async with db_pool.acquire() as conn:
         report = await run_contract_test(conn, mcp_client)
-    return JSONResponse(report.to_dict())
+    # Code-review H5: a report that couldn't be persisted is a
+    # half-success — the drift banner on the next page load will
+    # show stale state. Return 500 so the caller knows the audit
+    # trail is broken.
+    status_code = 200 if report.persisted else 500
+    return JSONResponse(report.to_dict(), status_code=status_code)
 
 
 @router.get("/presets")

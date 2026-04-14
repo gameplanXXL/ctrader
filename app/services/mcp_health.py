@@ -86,11 +86,16 @@ def is_any_degraded(*, now: datetime | None = None) -> bool:
 
 
 def worst_severity(*, now: datetime | None = None) -> str:
-    """Return the highest severity across all agents for the banner."""
+    """Return the highest severity across all agents for the banner.
+
+    Code-review M8 / BH-25: use `.get()` with a safe default so a
+    future severity token (e.g. "degraded") doesn't KeyError-crash
+    the banner.
+    """
 
     worst = "ok"
     order = {"ok": 0, "yellow": 1, "red": 2}
     for agent in get_all_agents(now=now):
-        if order[agent.severity] > order[worst]:
+        if order.get(agent.severity, 0) > order.get(worst, 0):
             worst = agent.severity
     return worst

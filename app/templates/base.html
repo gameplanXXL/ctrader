@@ -29,6 +29,10 @@
     {{ staleness_banner(mcp_agents) }}
   {% endif %}
   {% if contract_drift is defined and contract_drift %}
+    {# Code-review M12 / BH-16: `drift_details` is typed dict but a
+       malformed row or codec bypass could hand us a list/None/str.
+       Fall back to an empty dict to keep the template crash-free. #}
+    {% set drift_details_safe = contract_drift.drift_details if contract_drift.drift_details is mapping else {} %}
     <div class="contract-drift-banner" role="alert" aria-live="assertive">
       <span aria-hidden="true">⚠</span>
       <strong>MCP Contract Drift</strong>
@@ -37,9 +41,9 @@
         <code>{{ contract_drift.snapshot_version }}</code>
       </span>
       <span class="contract-drift-banner__details">
-        {% set added = contract_drift.drift_details.get("added") or [] %}
-        {% set removed = contract_drift.drift_details.get("removed") or [] %}
-        {% set changed = contract_drift.drift_details.get("changed") or [] %}
+        {% set added = drift_details_safe.get("added") or [] %}
+        {% set removed = drift_details_safe.get("removed") or [] %}
+        {% set changed = drift_details_safe.get("changed") or [] %}
         {% if added %}+{{ added | length }} neu{% endif %}
         {% if removed %} −{{ removed | length }} entfernt{% endif %}
         {% if changed %} Δ{{ changed | length }} geändert{% endif %}

@@ -13,10 +13,15 @@ def format_staleness(cached_at: datetime | None, *, now: datetime | None = None)
     """Return a short German phrase like "vor 23 Minuten".
 
     - `None` → "unbekannt"
+    - future timestamp (clock skew) → "in der Zukunft (?)"
     - < 60s → "gerade eben"
     - < 60min → "vor N Minuten"
     - < 24h  → "vor N Stunden"
     - ≥ 24h  → "vor N Tagen"
+
+    Code-review H8 / BH-7: future timestamps used to silently map to
+    "gerade eben", masking clock skew / tz bugs. We now surface the
+    anomaly explicitly.
     """
 
     if cached_at is None:
@@ -29,8 +34,8 @@ def format_staleness(cached_at: datetime | None, *, now: datetime | None = None)
     delta = reference - cached_at
     seconds = int(delta.total_seconds())
 
-    if seconds < 0:
-        return "gerade eben"
+    if seconds < -5:  # Allow a small clock-skew tolerance.
+        return "in der Zukunft (?)"
     if seconds < 60:
         return "gerade eben"
     if seconds < 3600:
@@ -48,7 +53,12 @@ def severity_for_staleness(cached_at: datetime | None, *, now: datetime | None =
 
     - < 1h → ok
     - 1h..24h → yellow
-    - > 24h OR None → red
+    - > 24h OR None OR future timestamp → red
+
+    Code-review H8 / BH-8: a future timestamp (clock skew, tz bug)
+    used to return "ok", silently masking a data-integrity issue.
+    We now treat it as red so the banner screams until the root
+    cause is fixed.
     """
 
     if cached_at is None:
@@ -58,7 +68,10 @@ def severity_for_staleness(cached_at: datetime | None, *, now: datetime | None =
     if cached_at.tzinfo is None:
         cached_at = cached_at.replace(tzinfo=UTC)
 
-    hours = (reference - cached_at).total_seconds() / 3600
+    delta_seconds = (reference - cached_at).total_seconds()
+    if delta_seconds < -5:
+        return "red"
+    hours = delta_seconds / 3600
     if hours < 1:
         return "ok"
     if hours < 24:
