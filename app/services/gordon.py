@@ -106,7 +106,10 @@ async def fetch_gordon_trend_radar(
     """
 
     if mcp_client is None:
-        return None, [], "mcp_client not configured"
+        # Template (`trends.html`) erkennt diesen Identifier und rendert
+        # eine strukturierte Hinweis-Box mit Setup-Anleitung statt nur
+        # den Raw-String. Key beibehalten, falls UI-Matching geändert wird.
+        return None, [], "config_missing:mcp_fundamental_url"
 
     try:
         response = await mcp_client.call_tool(_GORDON_TOOL_NAME, arguments={"agent": "gordon"})

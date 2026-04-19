@@ -122,9 +122,46 @@
       </div>
     {% endif %}
     {% if current.source_error %}
-      <div class="trends-page__warning" role="alert">
-        ⚠ MCP-Fetch-Fehler im letzten Snapshot: <code>{{ current.source_error }}</code>
-      </div>
+      {% if current.source_error.startswith('config_missing:mcp_fundamental_url') or current.source_error == 'mcp_client not configured' %}
+        <div class="trends-page__warning trends-page__warning--config" role="alert">
+          <p><strong>⚠ Gordon-Snapshot leer: MCP-Server nicht konfiguriert.</strong></p>
+          <p>
+            Gordon (Daytrading-Analyst) bezieht seine Trend-Radar-Daten über den
+            <code>fundamental</code>-MCP-Server unter
+            <code>/home/cneise/Project/fundamental</code>. Aktuell ist
+            <code>MCP_FUNDAMENTAL_URL</code> in <code>.env</code> nicht gesetzt,
+            also startet ctrader ohne MCP-Verbindung (graceful degradation, FR23).
+          </p>
+          <p><strong>Behebung:</strong></p>
+          <ol>
+            <li>
+              In <code>.env</code> die Zeile
+              <code>MCP_FUNDAMENTAL_URL=http://127.0.0.1:8700</code>
+              aktivieren (aktuell auskommentiert).
+            </li>
+            <li>
+              MCP-Server starten:
+              <code>cd /home/cneise/Project/fundamental &amp;&amp; make start</code>
+            </li>
+            <li>
+              ctrader neu starten, damit der Handshake beim Lifespan-Startup greift.
+            </li>
+          </ol>
+          <p>
+            <strong>Bekannte Einschränkung (D214 / Epic-10-Review):</strong>
+            Selbst mit korrekt konfigurierter URL wird der Fetch derzeit fehlschlagen —
+            der <code>fundamental</code>-Server stellt noch kein
+            <code>trend_radar</code>-Tool und kein <code>gordon</code>-Agent-Routing bereit.
+            Chef-Entscheidung offen: <em>fundamental</em> erweitern <em>oder</em>
+            Story 10.1 auf eine andere Quelle umlenken (z. B. scheduled Scraper
+            des öffentlichen Gordon-Blogs).
+          </p>
+        </div>
+      {% else %}
+        <div class="trends-page__warning" role="alert">
+          ⚠ MCP-Fetch-Fehler im letzten Snapshot: <code>{{ current.source_error }}</code>
+        </div>
+      {% endif %}
     {% endif %}
 
     {# ─── HOT-picks: NEW + UNCHANGED + DROPPED ─────────────── #}
