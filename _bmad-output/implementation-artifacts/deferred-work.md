@@ -350,7 +350,7 @@ This file is append-only — never delete entries, only mark them done.
 
 ### Blocking dependencies / AC gaps needing Chef decision
 
-- **D232 CHEF DECISION NEEDED**: Story 11.1 AC #2 lists 5 cron jobs; only 4 are registered in Tranche A (regime_snapshot, gordon_weekly, mcp_contract_test, db_backup). **IB Flex Nightly is missing** because `app/services/ib_flex_import::import_flex_xml` takes an XML string parameter — it's not a self-contained job. Options: (a) add a filesystem watcher that picks up XML drops in `data/ib-flex-inbox/`, (b) add an IB Flex Web Service API caller that downloads the XML directly, (c) officially descope to Phase 2 and update Story 11.1. *Source: Auditor 11.1 AC#2 / EC — out-of-scope for Tranche A.*
+- **D232 ✅ RESOLVED by Story 2.5 (2026-04-21)**: Chef-Decision Option (b) — IB Flex Web Service API caller. Scheduler-Job `ib_flex_nightly` läuft täglich 07:00 UTC, ruft `run_nightly_reconcile()` aus `app/services/ib_reconcile.py:250` (Downloader existierte bereits aus Story 2.2). Sliding-Window-Strategie: IB-Query in Account Management auf "Last 90 Days" konfiguriert, Idempotenz via `UNIQUE(broker, perm_id)` heilt Lücken automatisch. Conditional registration: Job nur aktiv wenn `IB_FLEX_TOKEN` + `IB_FLEX_QUERY_ID` gesetzt sind. CLI-Flag `--pull` ergänzt für Initial-Backfill. Story 2.5 File: `_bmad-output/implementation-artifacts/2-5-ib-flex-nightly-cron-pull.md`. *Source: Story 2.5 implementation.*
 
 - **D233** The top-bar health dots poll `/api/health/dots` every 5 seconds (code-review H9/H10). If Chef has 100+ browser tabs open (unlikely), that's 20 req/s on the endpoint. Acceptable for single-user localhost, but if multi-user auth lands, revisit. *Source: follow-up*
 

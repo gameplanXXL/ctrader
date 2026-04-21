@@ -1,6 +1,6 @@
 # Story 2.5: IB Flex Nightly Cron + CLI-Pull-Flag
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -52,9 +52,9 @@ Der IB-Flex-Import läuft heute **nur manuell** via `python -m app.cli.ib_flex_i
 
 ---
 
-- [ ] **Task 1: Scheduler-Job `ib_flex_nightly`** (AC: 1, 2, 3, 4)
-  - [ ] 1.1 `JOB_NAMES` in `app/services/scheduler.py:89` um `"ib_flex_nightly": "IB Flex Nightly"` erweitern
-  - [ ] 1.2 Neuen Job-Body `ib_flex_nightly_job()` in `setup_scheduler()` anlegen (Pattern aus `gordon_weekly_job`, `scheduler.py:293-299`):
+- [x] **Task 1: Scheduler-Job `ib_flex_nightly`** (AC: 1, 2, 3, 4)
+  - [x] 1.1 `JOB_NAMES` in `app/services/scheduler.py:89` um `"ib_flex_nightly": "IB Flex Nightly"` erweitern
+  - [x] 1.2 Neuen Job-Body `ib_flex_nightly_job()` in `setup_scheduler()` anlegen (Pattern aus `gordon_weekly_job`, `scheduler.py:293-299`):
     ```python
     async def ib_flex_nightly_job() -> None:
         async with db_pool.acquire() as conn:
@@ -69,7 +69,7 @@ Der IB-Flex-Import läuft heute **nur manuell** via `python -m app.cli.ib_flex_i
             )
         logger.info("ib_flex_nightly.ok", **counts)
     ```
-  - [ ] 1.3 **Conditional registration** — Job nur anhängen, wenn `settings.ib_flex_token and settings.ib_flex_query_id`:
+  - [x] 1.3 **Conditional registration** — Job nur anhängen, wenn `settings.ib_flex_token and settings.ib_flex_query_id`:
     ```python
     if settings.ib_flex_token and settings.ib_flex_query_id:
         scheduler.add_job(
@@ -81,51 +81,54 @@ Der IB-Flex-Import läuft heute **nur manuell** via `python -m app.cli.ib_flex_i
     else:
         logger.info("ib_flex_nightly.disabled_unconfigured")
     ```
-  - [ ] 1.4 Import-Statement in `setup_scheduler()` ergänzen: `from app.services.ib_reconcile import run_nightly_reconcile`
-  - [ ] 1.5 Import `settings` — bereits verfügbar via `from app.config import settings` (NICHT doppelt importieren)
+  - [x] 1.4 Import-Statement in `setup_scheduler()` ergänzen: `from app.services.ib_reconcile import run_nightly_reconcile`
+  - [x] 1.5 Import `settings` — bereits verfügbar via `from app.config import settings` (NICHT doppelt importieren)
 
-- [ ] **Task 2: CLI-Flag `--pull`** (AC: 5, 6, 7, 8)
-  - [ ] 2.1 `app/cli/ib_flex_import.py`: `argparse` erweitern — mutually exclusive Group:
+- [x] **Task 2: CLI-Flag `--pull`** (AC: 5, 6, 7, 8)
+  - [x] 2.1 `app/cli/ib_flex_import.py`: `argparse` erweitern — mutually exclusive Group:
     ```python
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("xml_file", nargs="?", type=Path, ...)
     group.add_argument("--pull", action="store_true", help="Download via IB Flex Web Service")
     ```
     (argparse gibt Exit-Code 2 automatisch bei konflikt-Args — das deckt AC 8 ab)
-  - [ ] 2.2 In `_run()` Pfad unterscheiden:
+  - [x] 2.2 In `_run()` Pfad unterscheiden:
     - Wenn `args.pull`: `settings.ib_flex_token`/`ib_flex_query_id` Check → sonst `print("IB_FLEX_TOKEN and IB_FLEX_QUERY_ID must be set in .env", file=sys.stderr); return 4`
     - Dann `xml_text = await download_flex_xml(token, query_id)` → `if xml_text is None: return 3` mit stderr
     - Dann `result = await import_flex_xml(conn, xml_text)` (existiert in `ib_flex_import.py`)
-  - [ ] 2.3 Wenn File-Modus: bestehender Code-Pfad bleibt unverändert
-  - [ ] 2.4 Exit-Codes am Dateianfang als Docstring dokumentieren (0/2/3/4)
+  - [x] 2.3 Wenn File-Modus: bestehender Code-Pfad bleibt unverändert
+  - [x] 2.4 Exit-Codes am Dateianfang als Docstring dokumentieren (0/2/3/4)
 
-- [ ] **Task 3: `.env.example` aktualisieren** (AC: 1, 4)
-  - [ ] 3.1 Kommentarblock ergänzen, dass Token + Query-ID Pflicht sind, wenn der Nightly-Job laufen soll; explizit `Last 90 Days` als empfohlene Period-Einstellung der IB-Query erwähnen
+- [x] **Task 3: `.env.example` aktualisieren** (AC: 1, 4)
+  - [x] 3.1 Kommentarblock ergänzen, dass Token + Query-ID Pflicht sind, wenn der Nightly-Job laufen soll; explizit `Last 90 Days` als empfohlene Period-Einstellung der IB-Query erwähnen
 
-- [ ] **Task 4: Unit-Tests für Scheduler-Job** (AC: 1, 2, 3, 4)
-  - [ ] 4.1 Neue Datei `tests/unit/test_scheduler_ib_flex.py`
-  - [ ] 4.2 Test: `setup_scheduler` mit gesetzten Secrets registriert `ib_flex_nightly` (Assert `scheduler.get_job("ib_flex_nightly") is not None`)
-  - [ ] 4.3 Test: `setup_scheduler` ohne `ib_flex_token` → Job nicht registriert, INFO-Log `ib_flex_nightly.disabled_unconfigured` erscheint (via `caplog` oder `structlog.testing.LogCapture`)
-  - [ ] 4.4 Test: `setup_scheduler` ohne `ib_flex_query_id` → selbes Verhalten wie 4.3
-  - [ ] 4.5 Test: `ib_flex_nightly_job()` ruft `run_nightly_reconcile` mit den richtigen Args (via `monkeypatch` auf den Import im Scheduler-Modul); erfolgreicher Run loggt `ib_flex_nightly.ok` mit Counts
-  - [ ] 4.6 Test: `ib_flex_nightly_job()` mit `run_nightly_reconcile` → `None` raised `RuntimeError` (assert via `pytest.raises`); zusammen mit `logged_job`-Wrapper resultiert das in `status='failure'` (diesen Integrationsteil darf Task 5 abdecken)
+- [x] **Task 4: Unit-Tests für Scheduler-Job** (AC: 1, 2, 3, 4)
+  - [x] 4.1 Neue Datei `tests/unit/test_scheduler_ib_flex.py`
+  - [x] 4.2 Test: `setup_scheduler` mit gesetzten Secrets registriert `ib_flex_nightly` (Assert `scheduler.get_job("ib_flex_nightly") is not None`) + prüft CronTrigger(hour=7)
+  - [x] 4.3 Test: `setup_scheduler` ohne `ib_flex_token` → Job nicht registriert, andere 4 Jobs bleiben
+  - [x] 4.4 Test: `setup_scheduler` ohne `ib_flex_query_id` → selbes Verhalten wie 4.3
+  - [x] 4.5 Test: Job-Body ruft `run_nightly_reconcile` mit korrekten Args (Token + Query-ID aus Settings) — über `job.func()` + Scheduler-Introspection
+  - [x] 4.6 Test: Body mit `run_nightly_reconcile` → `None` raised `RuntimeError("download failed ...")` (direkte Body-Rekonstruktion, umgeht den swallowing `logged_job`-Wrapper)
 
-- [ ] **Task 5: Unit-Tests für CLI `--pull`** (AC: 5, 6, 7, 8)
-  - [ ] 5.1 Neue Datei `tests/unit/test_cli_flex_pull.py`
-  - [ ] 5.2 Test: `--pull` ohne Secrets → Exit `4`, stderr enthält erwarteten Text
-  - [ ] 5.3 Test: `--pull` mit Secrets, mocked `download_flex_xml` → `None` → Exit `3`
-  - [ ] 5.4 Test: `--pull` mit Secrets, mocked Download liefert valide XML → `import_flex_xml` wird mit dieser XML aufgerufen → Exit `0`
-  - [ ] 5.5 Test: `--pull` UND `xml_file` gleichzeitig → argparse Exit `2` (via `SystemExit` fangen)
-  - [ ] 5.6 Nutze `httpx.MockTransport` für Downloader-Mocks — Pattern aus `tests/unit/test_ib_reconcile.py` (falls existiert) oder `unittest.mock.patch("app.cli.ib_flex_import.download_flex_xml", ...)`
+- [x] **Task 5: Unit-Tests für CLI `--pull`** (AC: 5, 6, 7, 8)
+  - [x] 5.1 Neue Datei `tests/unit/test_cli_flex_pull.py`
+  - [x] 5.2 Test: `--pull` ohne Token → Exit `4`, stderr enthält `IB_FLEX_TOKEN and IB_FLEX_QUERY_ID must be set in .env`
+  - [x] 5.3 Test: `--pull` ohne Query-ID → Exit `4`, stderr `must be set in .env`
+  - [x] 5.4 Test: `--pull` mit Secrets, mocked `download_flex_xml` → `None` → Exit `3`, stderr `Flex download failed`
+  - [x] 5.5 Test: Happy-Path — Download liefert XML → `import_flex_xml` wird mit exakt dieser XML aufgerufen → Exit `0`
+  - [x] 5.6 Test: `--pull` UND `xml_file` gleichzeitig → argparse `SystemExit(2)`
+  - [x] 5.7 Zusätzlicher Test: Kein Argument → argparse `SystemExit(2)` (required-one)
+  - [x] 5.8 Regression-Guard: File-Modus (`xml_file` only) ruft `import_flex_file` unverändert → Exit `0`
 
-- [ ] **Task 6: Idempotenz-Integration-Test** (AC: 10)
-  - [ ] 6.1 In `tests/integration/test_flex_import.py` einen neuen Test ergänzen: Import derselben Sample-XML zweimal hintereinander → zweiter Lauf muss `inserted=0, skipped_duplicate=N` liefern (deckt Lückenschluss-Garantie ab — Idempotenz × Sliding-Window)
-  - [ ] 6.2 Falls dieser Test als Regression bereits existiert (Story 2.1 AC 5): nur via Kommentar mit `# AC 10 Story 2.5` annotieren, nicht duplizieren
+- [x] **Task 6: Idempotenz-Integration-Test** (AC: 10)
+  - [x] 6.1 Test existiert bereits (`test_reimport_is_idempotent` in `tests/integration/test_flex_import.py:172`) aus Story 2.1 AC 5
+  - [x] 6.2 Kommentar über dem Test ergänzt, der die Story-2.5-AC-10-Sliding-Window-Garantie verlinkt — nicht dupliziert
 
-- [ ] **Task 7: Full-Suite-Regression** (AC: alle)
-  - [ ] 7.1 `uv run pytest` grün (alle 166+N Tests)
-  - [ ] 7.2 `uv run ruff check .` clean
-  - [ ] 7.3 `uv run mypy app` clean (sofern im Projekt konfiguriert; falls nicht: skip)
+- [x] **Task 7: Full-Suite-Regression** (AC: alle)
+  - [x] 7.1 `uv run pytest -m "not integration"` grün: **476 passed, 20 deselected** (integration braucht Live-DB)
+  - [x] 7.2 `uv run ruff check .` clean
+  - [x] 7.3 mypy nicht im Projekt konfiguriert — skip nach Story-Vorgabe
+  - [x] 7.4 Defensive conftest-Fix: `configure_logging` wird in Unit-Tests gestubbt, weil `data/logs/ctrader.log` im Dev-Env nach `make start` von root owned ist und pytest's TestClient-Lifespan daran scheiterte. Stubbing ist defensiv — strukturierte Log-Processors von structlog bleiben unverändert. Netto 25 Tests (`test_pages.py`, `test_tagging_form.py`, `test_trade_detail_unit.py`, `test_debug_route.py`) wieder grün.
 
 ## Dev Notes
 
@@ -212,16 +215,40 @@ Neue Test-Files (erwartet):
 
 ### Agent Model Used
 
-_(wird vom Dev-Agent gesetzt)_
+Claude Opus 4.7 (1M context) — `claude-opus-4-7[1m]`
 
 ### Debug Log References
 
-_(leer — wird vom Dev-Agent befüllt)_
+- Erster Test-Run gegen `test_scheduler_ib_flex.py` schlug fehl: `scheduler.start()` in `setup_scheduler()` braucht einen laufenden Event-Loop. Fix: Tests async deklariert (pytest-asyncio mode=auto im Projekt aktiv).
+- Zweiter Test-Run gegen `test_cli_flex_pull.py` schlug fehl: `PermissionError` auf `data/logs/ctrader.log` (owned by root nach `make start`). Fix: autouse fixture `_silence_configure_logging` in CLI-Testdatei, danach auch in `tests/conftest.py` generalisiert — deckt 25 weitere Tests ab, die über `TestClient` den Lifespan triggern.
+- Ruff meldete 5 Import-Order-Issues in den neuen Test-Files; alle via `ruff --fix` behoben (unused `scheduler_mod`-Imports entfernt).
 
 ### Completion Notes List
 
-_(leer — wird vom Dev-Agent befüllt)_
+- **Wire-Up-Strategy eingehalten:** Kein neuer Downloader gebaut. `download_flex_xml` aus `app/services/ib_reconcile.py:61` und `run_nightly_reconcile` aus `:250` werden vom Scheduler-Job und vom CLI-`--pull` direkt konsumiert.
+- **Conditional registration** via `settings.ib_flex_token and settings.ib_flex_query_id`-Gate (Pattern aus `ctrader_host` / `mcp_fundamental_url`); kein Half-Configured-Zustand.
+- **Failure-raise-Pattern:** `run_nightly_reconcile` returned `None` → `RuntimeError` damit `logged_job` das als `status='failure'` in `job_executions` persistiert. Mirror von `gordon_weekly_job:293-299`.
+- **Health-Widget-Integration:** `JOB_NAMES["ib_flex_nightly"]` wird **unconditional** eingetragen. Bei disabled Feature zeigt der Widget `never_run` statt den Eintrag zu verschweigen — besseres Default für Chef.
+- **Exit-Codes sind CLI-Kontrakt:** 0 / 2 (argparse) / 3 (download fail) / 4 (missing secrets). Alle Pfade testabgedeckt.
+- **Defensiver conftest-Fix** (Task 7.4): `configure_logging` wird in Unit-Tests gestubbt. Das ist ein Test-Infrastructure-Fix, kein App-Code-Change, und fixt ein Environment-Problem (root-owned Log-Files durch Docker-Lifecycle), das unabhängig von Story 2.5 besteht.
+- **D232 aufgelöst:** In `deferred-work.md` wird der Eintrag unten als `✅ RESOLVED by Story 2.5` annotiert (append-only).
+- **476 Unit-Tests grün, ruff clean.** Integration-Tests (20 deselected) brauchen testcontainers-DB — der existierende `test_reimport_is_idempotent` deckt AC 10 ab, jetzt mit Story-2.5-Kommentar annotiert.
 
 ### File List
 
-_(leer — wird vom Dev-Agent befüllt)_
+Modified:
+- `app/services/scheduler.py` — `JOB_NAMES["ib_flex_nightly"]` + conditional `setup_scheduler` registration + `ib_flex_nightly_job` body + import von `run_nightly_reconcile` und `settings`
+- `app/cli/ib_flex_import.py` — komplett umgebaut: mutually-exclusive `xml_file` vs `--pull`, zwei `_run_*`-Pfade, Exit-Codes dokumentiert
+- `.env.example` — Kommentarblock für `IB_FLEX_TOKEN`/`IB_FLEX_QUERY_ID` mit IB-Query-Konfigurationshinweisen
+- `tests/conftest.py` — autouse fixture `_stub_configure_logging` (fixt 25 Tests, die via TestClient-Lifespan scheiterten)
+- `tests/integration/test_flex_import.py` — Kommentar über `test_reimport_is_idempotent` mit Story-2.5-AC-10-Verlinkung
+
+Created:
+- `tests/unit/test_scheduler_ib_flex.py` — 6 Tests: JOB_NAMES-Eintrag, conditional registration (×3), Job-Body-Args, Failure-Raise
+- `tests/unit/test_cli_flex_pull.py` — 7 Tests: argparse-Validierung (×2), missing-secrets (×2), download-fail, happy-path, file-mode-regression
+
+Test-Count: **+13 new tests**, 476/476 non-integration grün, ruff clean.
+
+### Change Log
+
+- **2026-04-21:** Story 2.5 implementiert. Wire-Up des APScheduler-Jobs `ib_flex_nightly` (07:00 UTC) + CLI-Flag `--pull`. Löst D232 aus `deferred-work.md`. Kein neuer Service-Code — nutzt existierenden Downloader aus Story 2.2. `+13` neue Tests, Full-Unit-Suite (476 Tests) grün, ruff clean.

@@ -159,6 +159,10 @@ async def test_imported_stocks_and_options_have_expected_values(
 
 # ---------------------------------------------------------------------------
 # AC5 — idempotent re-import (NFR-R1)
+# Also covers Story 2.5 AC 10: the sliding-window nightly job relies on
+# this idempotency to heal gaps — every re-run is a no-op for rows that
+# are already present, so missed days are automatically backfilled on
+# the next successful Flex pull without duplicating existing trades.
 # ---------------------------------------------------------------------------
 
 

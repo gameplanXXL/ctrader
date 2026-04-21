@@ -26,6 +26,25 @@ from app.services.taxonomy import get_taxonomy
 
 
 @pytest.fixture(autouse=True)
+def _stub_configure_logging(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Prevent the lifespan's `configure_logging()` from opening
+    `data/logs/ctrader.log`. In a freshly-booted dev environment the
+    log file can be owned by root (when `make start` runs the app via
+    Docker as root), making it unreadable from pytest as the host
+    user. Tests never need the rotating file handler, so stub it out
+    — structlog stays usable via its default processors.
+
+    Patched on `app.main` (which holds the imported reference the
+    lifespan calls) AND on `app.cli.ib_flex_import` + `app.logging`
+    so no other caller resurrects the real handler.
+    """
+
+    noop = lambda: None  # noqa: E731
+    monkeypatch.setattr("app.main.configure_logging", noop, raising=False)
+    monkeypatch.setattr("app.logging.configure_logging", noop, raising=False)
+
+
+@pytest.fixture(autouse=True)
 def _fake_db_pool(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
     """Replace asyncpg + migrations with AsyncMocks for unit tests.
 

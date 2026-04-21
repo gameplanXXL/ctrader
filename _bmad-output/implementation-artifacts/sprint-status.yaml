@@ -14,7 +14,7 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-21T10:00'
+last_updated: '2026-04-21T11:30'
 notes: |
   Story 2.5 (IB Flex Nightly Cron + CLI-Pull-Flag) am 2026-04-21 angelegt als
   Nachzügler für Epic 2. Verdrahtet den bereits in Story 2.2 gebauten
@@ -73,7 +73,7 @@ development_status:
   2-2-live-ib-sync-reconciliation: review  # Rest-Descope nach Story 12.1
   2-3-journal-startseite-trade-list: done
   2-4-trade-drilldown-inline-expansion: done
-  2-5-ib-flex-nightly-cron-pull: ready-for-dev  # D232 resolution; wires existing downloader into scheduler + CLI --pull flag
+  2-5-ib-flex-nightly-cron-pull: review  # D232 resolved; 13 new tests, 476/476 unit suite green, ruff clean
 
   # =========================================================================
   # EPIC 3: Trade-Tagging & Trigger-Provenance

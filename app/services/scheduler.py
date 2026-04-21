@@ -86,11 +86,17 @@ UPDATE job_executions
 """
 
 # Job names — closed vocabulary matching the Story 11.1 Dev Notes.
+# `ib_flex_nightly` added in Story 2.5 (resolves D232). The job is only
+# registered when `IB_FLEX_TOKEN` and `IB_FLEX_QUERY_ID` are configured;
+# the entry stays in JOB_NAMES unconditionally so the Health-Widget
+# shows `never_run` when the feature is disabled rather than silently
+# omitting the row.
 JOB_NAMES: dict[str, str] = {
     "regime_snapshot": "Regime Snapshot",
     "gordon_weekly": "Gordon Weekly",
     "db_backup": "DB Backup",
     "mcp_contract_test": "MCP Contract Test",
+    "ib_flex_nightly": "IB Flex Nightly",
 }
 
 # Code-review H4 / H5: bounded timeouts so a hung job / pool can't
@@ -225,8 +231,10 @@ def setup_scheduler(
     from apscheduler.schedulers.asyncio import AsyncIOScheduler
     from apscheduler.triggers.cron import CronTrigger
 
+    from app.config import settings
     from app.services.db_backup import create_backup, rotate_backups
     from app.services.gordon import fetch_and_persist as gordon_fetch_and_persist
+    from app.services.ib_reconcile import run_nightly_reconcile
     from app.services.mcp_contract_test import run_contract_test
     from app.services.regime_snapshot import (
         compute_per_broker_pnl,
@@ -332,6 +340,40 @@ def setup_scheduler(
         id="db_backup",
         replace_existing=True,
     )
+
+    # ---- IB Flex Nightly (Story 2.5 / resolves D232): 07:00 UTC -----
+    # Wire-up for the `download_flex_xml` + `run_nightly_reconcile`
+    # primitives built in Story 2.2. Chef configures an IB Activity
+    # Flex Query with period "Last 90 Days" as a sliding-window, so
+    # any single successful run heals up to 90 days of downtime —
+    # idempotency via `UNIQUE(broker, perm_id)` makes repeat imports
+    # a no-op. No gap tracking, no replay logic.
+    #
+    # `run_nightly_reconcile` returns None on download failure; we
+    # raise RuntimeError so `logged_job` records `status='failure'`
+    # (pattern mirrors `gordon_weekly_job` above — otherwise a silent
+    # network blip would leave the Health-Widget green).
+    if settings.ib_flex_token and settings.ib_flex_query_id:
+        flex_token = settings.ib_flex_token
+        flex_query_id = settings.ib_flex_query_id
+
+        async def ib_flex_nightly_job() -> None:
+            async with db_pool.acquire() as conn:
+                counts = await run_nightly_reconcile(conn, flex_token, flex_query_id)
+            if counts is None:
+                raise RuntimeError(
+                    "ib_flex_nightly: download failed — see ib_flex_download.* warnings"
+                )
+            logger.info("ib_flex_nightly.ok", **counts)
+
+        scheduler.add_job(
+            logged_job("ib_flex_nightly", ib_flex_nightly_job, db_pool),
+            CronTrigger(hour=7, minute=0),
+            id="ib_flex_nightly",
+            replace_existing=True,
+        )
+    else:
+        logger.info("ib_flex_nightly.disabled_unconfigured")
 
     scheduler.start()
     logger.info(
