@@ -14,8 +14,16 @@
 # - done            : All stories in epic are done
 
 project: ctrader3
-last_updated: '2026-04-14T19:30'
+last_updated: '2026-04-21T10:00'
 notes: |
+  Story 2.5 (IB Flex Nightly Cron + CLI-Pull-Flag) am 2026-04-21 angelegt als
+  Nachzügler für Epic 2. Verdrahtet den bereits in Story 2.2 gebauten
+  download_flex_xml + run_nightly_reconcile in den APScheduler aus Story 11.1
+  und ergänzt einen --pull-Flag im CLI für den 12-Monats-Backfill. Löst D232.
+  Chef-Decision D232 (2026-04-21): Cron täglich 07:00 UTC, IB-Query-Period
+  Last 90 Days als Sliding-Window — Lückenschluss über Idempotenz statt
+  Gap-Tracking.
+
   Alle 48 Story-Dateien existieren als ready-for-dev.
   Epic 11 Stories (11.1-11.4) wurden am 2026-04-13 auf Architecture Decision #9 gepatcht
   (order_service.py statt quick_order.py, trades-Tabellen-Erweiterung statt ib_quick_orders,
@@ -65,6 +73,7 @@ development_status:
   2-2-live-ib-sync-reconciliation: review  # Rest-Descope nach Story 12.1
   2-3-journal-startseite-trade-list: done
   2-4-trade-drilldown-inline-expansion: done
+  2-5-ib-flex-nightly-cron-pull: ready-for-dev  # D232 resolution; wires existing downloader into scheduler + CLI --pull flag
 
   # =========================================================================
   # EPIC 3: Trade-Tagging & Trigger-Provenance
