@@ -56,6 +56,18 @@ Folgende Entscheidungen stehen fest und werden **nicht** ohne expliziten Nutzer-
 - **cTrader-Integration:** OpenApiPy (Protobuf), mögliche partielle Wiederverwendung aus `/home/cneise/Project/ALT/ctrader2` nur nach 1-Tages-Spike-Timebox.
 - **Fundamental-/News-Layer:** Harte MCP-Dependency auf `/home/cneise/Project/fundamental`. Keine Re-Implementierung.
 
+### 5. Änderungs-Disziplin
+
+Auf Code-Ebene gilt die gleiche Disziplin wie auf Feature-Ebene: nur das ändern, was beauftragt wurde.
+
+- **Ändere NUR, was explizit beauftragt wurde.** Keine "Verbesserungen am Rande", keine ungebetenen Refactorings.
+- Refactorings, Umbenennungen, Reformatierungen, Import-Sortierung NUR auf direkten Auftrag.
+- **"Fertig" heißt fertig:** Code, der bereits existiert und nicht Teil des aktuellen Auftrags ist, wird NICHT angefasst — auch nicht "kurz".
+- Bei Unsicherheit, ob etwas zum Auftrag gehört: **rückfragen, nicht handeln.**
+- Keine Style-Änderungen, keine "while I'm at it"-Edits, keine stillen Optimierungen.
+- Nach jeder Änderung muss der `git diff` ausschließlich Zeilen enthalten, die direkt zum Auftrag gehören. Alles andere ist ein Verstoß gegen diese Regel.
+- Wenn ein "fertiger" Stand referenziert wird (z. B. via Commit-Hash oder Story-Abschluss): Dieser Stand ist die Baseline. Änderungen setzen darauf auf, sie ersetzen ihn nicht.
+
 ## Harte Dependency: `fundamental`
 
 ctrader konsumiert das bestehende MCP-Server-Projekt unter `/home/cneise/Project/fundamental` als Client:
